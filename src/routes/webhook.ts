@@ -6,6 +6,8 @@ import type {
 import { extractPhoneFromJid } from "../utils/format.js";
 import { enqueueForUser } from "../services/user-queue.js";
 import { processMessage } from "../services/message-processor.js";
+import { transcribeAudioMessage } from "../services/audio-transcriber.js";
+import { sendWhatsAppText } from "../services/evolution.js";
 
 function extractText(data: EvolutionMessageData): string | null {
   if (data.message?.conversation) {
@@ -17,13 +19,43 @@ function extractText(data: EvolutionMessageData): string | null {
   return null;
 }
 
+function isAudioMessage(data: EvolutionMessageData): boolean {
+  return (
+    data.messageType === "audioMessage" || !!data.message?.audioMessage
+  );
+}
+
 function isProcessableMessage(data: EvolutionMessageData): boolean {
   if (data.key.fromMe) return false;
+  return !!extractText(data) || isAudioMessage(data);
+}
 
-  const text = extractText(data);
-  if (!text) return false;
+async function processAudioMessage(data: EvolutionMessageData): Promise<void> {
+  const phone = extractPhoneFromJid(data.key.remoteJid);
 
-  return true;
+  try {
+    const text = await transcribeAudioMessage(data);
+    console.log(`Áudio transcrito (${phone}): ${text}`);
+
+    await processMessage({
+      phone,
+      text,
+      pushName: data.pushName,
+      messageType: data.messageType ?? "audioMessage",
+      source: "audio",
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`Erro ao processar áudio (${phone}):`, message);
+
+    const userMessage = message.includes("OPENAI_API_KEY")
+      ? "Transcrição de áudio não configurada. Reinicie o backend após adicionar OPENAI_API_KEY no .env."
+      : message.includes("insufficient_quota") || message.includes("429")
+        ? "Transcrição de áudio indisponível no momento (cota OpenAI esgotada). Use texto por enquanto ou adicione créditos em platform.openai.com."
+        : "Não consegui entender o áudio. Tente enviar por texto ou grave novamente.";
+
+    await sendWhatsAppText({ phone, text: userMessage });
+  }
 }
 
 export const webhookRouter = Router();
@@ -53,8 +85,16 @@ webhookRouter.post("/", (req: Request, res: Response) => {
   for (const data of messages) {
     if (!isProcessableMessage(data)) continue;
 
-    const text = extractText(data)!;
     const phone = extractPhoneFromJid(data.key.remoteJid);
+
+    if (isAudioMessage(data)) {
+      enqueueForUser(phone, () => processAudioMessage(data)).catch((err) => {
+        console.error(`Falha no processamento de áudio (${phone}):`, err);
+      });
+      continue;
+    }
+
+    const text = extractText(data)!;
 
     enqueueForUser(phone, () =>
       processMessage({
@@ -62,6 +102,7 @@ webhookRouter.post("/", (req: Request, res: Response) => {
         text,
         pushName: data.pushName,
         messageType: data.messageType ?? "text",
+        source: "text",
       })
     ).catch((err) => {
       console.error(`Falha no processamento assíncrono (${phone}):`, err);

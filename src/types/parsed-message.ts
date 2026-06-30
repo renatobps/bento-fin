@@ -1,6 +1,8 @@
 export type MessageIntent =
   | "registrar_gasto"
   | "consultar_gastos"
+  | "excluir_ultimo_gasto"
+  | "corrigir_ultimo_gasto"
   | "fora_contexto"
   | "clarificacao_resposta";
 

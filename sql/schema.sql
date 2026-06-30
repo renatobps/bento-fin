@@ -46,3 +46,34 @@ CREATE TABLE IF NOT EXISTS conversation_state (
   pending_context JSONB,
   updated_at TIMESTAMP DEFAULT NOW()
 );
+
+CREATE TABLE IF NOT EXISTS auth_otp (
+  id SERIAL PRIMARY KEY,
+  phone VARCHAR(20) NOT NULL,
+  code VARCHAR(6) NOT NULL,
+  expires_at TIMESTAMP NOT NULL,
+  used BOOLEAN DEFAULT false,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_auth_otp_phone ON auth_otp(phone);
+
+CREATE TABLE IF NOT EXISTS spending_limits (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER REFERENCES users(id) UNIQUE NOT NULL,
+  daily_limit NUMERIC(10,2),
+  weekly_limit NUMERIC(10,2),
+  monthly_limit NUMERIC(10,2),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS limit_notifications (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER REFERENCES users(id) NOT NULL,
+  period_type VARCHAR(10) NOT NULL,
+  period_key DATE NOT NULL,
+  notified_at TIMESTAMP DEFAULT NOW(),
+  UNIQUE(user_id, period_type, period_key)
+);
+
+CREATE INDEX IF NOT EXISTS idx_limit_notifications_user ON limit_notifications(user_id);

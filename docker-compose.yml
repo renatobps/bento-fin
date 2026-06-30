@@ -9,6 +9,8 @@ services:
       POSTGRES_USER: user
       POSTGRES_PASSWORD: pass
       POSTGRES_DB: bento
+      TZ: America/Sao_Paulo
+      PGTZ: America/Sao_Paulo
     volumes:
       - bento_pg_data:/var/lib/postgresql/data
 

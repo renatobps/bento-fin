@@ -1,12 +1,13 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { env } from "../config/env.js";
 import type { ParsedMessage } from "../types/parsed-message.js";
+import { getTodayISO } from "../utils/format.js";
 
 const SYSTEM_PROMPT = `Você é o parser do Bento, um assistente financeiro via WhatsApp.
 Analise a mensagem do usuário e retorne APENAS um JSON válido (sem markdown) com os campos:
 
 {
-  "intent": "registrar_gasto" | "consultar_gastos" | "fora_contexto" | "clarificacao_resposta",
+  "intent": "registrar_gasto" | "consultar_gastos" | "excluir_ultimo_gasto" | "corrigir_ultimo_gasto" | "fora_contexto" | "clarificacao_resposta",
   "valor": number | null,
   "categoria": "alimentação" | "transporte" | "lazer" | "saúde" | "moradia" | "outros" | null,
   "descricao": string | null,
@@ -18,6 +19,8 @@ Analise a mensagem do usuário e retorne APENAS um JSON válido (sem markdown) c
 Regras:
 - intent=registrar_gasto quando o usuário informa um gasto
 - intent=consultar_gastos quando pergunta quanto gastou (hoje/semana/mês)
+- intent=excluir_ultimo_gasto quando pede para apagar, excluir, desfazer ou remover o último gasto
+- intent=corrigir_ultimo_gasto quando pede para corrigir, alterar ou mudar o último gasto (extraia novo valor/categoria/descrição se informados)
 - intent=fora_contexto para mensagens não relacionadas a gastos
 - intent=clarificacao_resposta quando o usuário responde apenas com um valor após pedido de clarificação
 - valor: extraia números de formatos como "30 reais", "R$30", "30,50", "trinta reais". null se impossível
@@ -25,11 +28,7 @@ Regras:
 - periodo: para consultas, identifique o período. Default "hoje" se não especificado
 - precisa_clarificacao: true se intent=registrar_gasto mas valor é null
 - expense_date: data do gasto. Use hoje se não especificado. Interprete "ontem", "hoje", etc.
-- Data de referência (hoje): {{TODAY}}`;
-
-function getTodayISO(): string {
-  return new Date().toISOString().slice(0, 10);
-}
+- Data de referência (hoje, fuso America/Sao_Paulo): {{TODAY}}`;
 
 export async function parseMessage(
   text: string,

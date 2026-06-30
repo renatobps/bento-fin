@@ -1,4 +1,5 @@
 import { query } from "../db/pool.js";
+import { normalizePhone } from "../utils/phone.js";
 
 export interface User {
   id: number;
@@ -10,9 +11,11 @@ export async function findOrCreateUser(
   phone: string,
   name?: string
 ): Promise<User> {
+  const normalized = normalizePhone(phone);
+
   const existing = await query<User>(
     "SELECT id, phone, name FROM users WHERE phone = $1",
-    [phone]
+    [normalized]
   );
 
   if (existing.rows[0]) {
@@ -21,7 +24,7 @@ export async function findOrCreateUser(
 
   const created = await query<User>(
     "INSERT INTO users (phone, name) VALUES ($1, $2) RETURNING id, phone, name",
-    [phone, name ?? null]
+    [normalized, name ?? null]
   );
 
   return created.rows[0];

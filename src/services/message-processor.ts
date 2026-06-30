@@ -7,7 +7,10 @@ import {
 } from "../repositories/categories.js";
 import {
   createExpense,
+  deleteExpense,
   getExpensesForPeriod,
+  getLastExpense,
+  updateExpense,
 } from "../repositories/expenses.js";
 import { logMessage } from "../repositories/messages-log.js";
 import {
@@ -19,18 +22,30 @@ import {
   getTodayISO,
   parseAmount,
 } from "../utils/format.js";
+import { checkSpendingLimits } from "./spending-limit-checker.js";
 
 export interface IncomingMessage {
   phone: string;
   text: string;
   pushName?: string;
   messageType: string;
+  source?: "text" | "audio";
+}
+
+function formatExpenseLine(
+  amount: number | string,
+  categoryName: string,
+  description?: string | null
+): string {
+  const value = typeof amount === "number" ? amount : parseAmount(amount);
+  return `${formatCurrency(value)} - ${categoryName}${description ? ` (${description})` : ""}`;
 }
 
 export async function processMessage(msg: IncomingMessage): Promise<void> {
   const user = await findOrCreateUser(msg.phone, msg.pushName);
   let success = false;
   let responseText = "";
+  const source = msg.source ?? "text";
 
   try {
     const pending = await getPendingContext(user.id);
@@ -55,10 +70,13 @@ export async function processMessage(msg: IncomingMessage): Promise<void> {
         categoryId: category.id,
         description,
         expenseDate,
+        source,
       });
 
+      await checkSpendingLimits(user.id, msg.phone, expenseDate);
+
       await setPendingContext(user.id, null);
-      responseText = `Gasto registrado: ${formatCurrency(amount)} - ${category.name}${description ? ` (${description})` : ""}`;
+      responseText = `Gasto registrado: ${formatExpenseLine(amount, category.name, description)}`;
       success = true;
     } else if (parsed.intent === "registrar_gasto") {
       if (parsed.precisa_clarificacao || parsed.valor === null) {
@@ -83,9 +101,12 @@ export async function processMessage(msg: IncomingMessage): Promise<void> {
           categoryId: category.id,
           description: parsed.descricao,
           expenseDate,
+          source,
         });
 
-        responseText = `Gasto registrado: ${formatCurrency(amount)} - ${category.name}${parsed.descricao ? ` (${parsed.descricao})` : ""}`;
+        await checkSpendingLimits(user.id, msg.phone, expenseDate);
+
+        responseText = `Gasto registrado: ${formatExpenseLine(amount, category.name, parsed.descricao)}`;
         success = true;
       }
     } else if (parsed.intent === "consultar_gastos") {
@@ -120,9 +141,54 @@ export async function processMessage(msg: IncomingMessage): Promise<void> {
         responseText = `${periodLabel} você gastou ${formatCurrency(total)}:\n${lines.join("\n")}`;
       }
       success = true;
+    } else if (parsed.intent === "excluir_ultimo_gasto") {
+      const last = await getLastExpense(user.id);
+      if (!last) {
+        responseText = "Você ainda não tem gastos registrados.";
+      } else {
+        await deleteExpense(last.id, user.id);
+        responseText = `Gasto excluído: ${formatExpenseLine(last.amount, last.category_name, last.description)}`;
+      }
+      success = true;
+    } else if (parsed.intent === "corrigir_ultimo_gasto") {
+      const last = await getLastExpense(user.id);
+      if (!last) {
+        responseText = "Você ainda não tem gastos registrados para corrigir.";
+      } else {
+        const hasAmount = parsed.valor !== null;
+        const hasCategory = parsed.categoria !== null;
+        const hasDescription = parsed.descricao !== null;
+
+        if (!hasAmount && !hasCategory && !hasDescription) {
+          responseText =
+            "O que você quer corrigir no último gasto? Informe o novo valor, categoria ou descrição. Ex: \"corrige para 50 reais\" ou \"muda para transporte\".";
+        } else {
+          const category = hasCategory
+            ? await getCategoryByName(normalizeCategory(parsed.categoria))
+            : null;
+
+          const updated = await updateExpense(last.id, user.id, {
+            amount: hasAmount ? parsed.valor! : undefined,
+            categoryId: category?.id,
+            description: hasDescription ? parsed.descricao : undefined,
+          });
+
+          if (!updated) {
+            responseText = "Não consegui corrigir o gasto. Tente novamente.";
+          } else {
+            await checkSpendingLimits(
+              user.id,
+              msg.phone,
+              updated.expense_date
+            );
+            responseText = `Gasto corrigido: ${formatExpenseLine(updated.amount, updated.category_name, updated.description)}`;
+          }
+        }
+      }
+      success = true;
     } else {
       responseText =
-        "Olá! Sou o Bento, seu assistente financeiro. Posso registrar seus gastos e mostrar quanto você gastou hoje, essa semana ou esse mês. Tente algo como: \"gastei 30 reais com lanche\".";
+        "Olá! Sou o Bento, seu assistente financeiro. Posso registrar gastos, consultar quanto você gastou, corrigir ou excluir o último gasto. Tente: \"gastei 30 reais com lanche\" ou \"apaga o último gasto\".";
       success = true;
     }
   } catch (err) {

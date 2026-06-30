@@ -22,6 +22,8 @@ export const env = {
     instanceName: requireEnv("WHATSAPP_INSTANCE_NAME"),
     webhookUrl: optionalEnv("WHATSAPP_WEBHOOK_URL", ""),
   },
-  anthropicApiKey: optionalEnv("ANTHROPIC_API_KEY", ""),
-  openaiApiKey: optionalEnv("OPENAI_API_KEY", ""),
+  anthropicApiKey: optionalEnv("ANTHROPIC_API_KEY", "").trim(),
+  openaiApiKey: optionalEnv("OPENAI_API_KEY", "").trim(),
+  jwtSecret: optionalEnv("JWT_SECRET", "bento-dev-secret-change-in-production"),
+  corsOrigin: optionalEnv("CORS_ORIGIN", "http://localhost:3001"),
 };

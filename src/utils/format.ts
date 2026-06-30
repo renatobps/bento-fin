@@ -1,3 +1,6 @@
+import { getTodayISO as todayInSaoPaulo } from "./timezone.js";
+import { normalizePhone } from "./phone.js";
+
 export function formatCurrency(value: number): string {
   return value.toLocaleString("pt-BR", {
     style: "currency",
@@ -6,11 +9,12 @@ export function formatCurrency(value: number): string {
 }
 
 export function extractPhoneFromJid(remoteJid: string): string {
-  return remoteJid.split("@")[0].replace(/\D/g, "");
+  const raw = remoteJid.split("@")[0].replace(/\D/g, "");
+  return normalizePhone(raw);
 }
 
 export function getTodayISO(): string {
-  return new Date().toISOString().slice(0, 10);
+  return todayInSaoPaulo();
 }
 
 export function parseAmount(value: string | number): number {

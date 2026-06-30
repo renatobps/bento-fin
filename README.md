@@ -1,6 +1,6 @@
 # Bento — Chatbot Financeiro via WhatsApp
 
-Backend Node.js + TypeScript para registrar e consultar gastos via WhatsApp (Evolution API) com extração por IA (Claude).
+Backend Node.js + TypeScript para registrar e consultar gastos via WhatsApp (Evolution API) com extração por IA (Claude). Dashboard web em Next.js para visualização.
 
 ## Pré-requisitos
 
@@ -11,7 +11,7 @@ Backend Node.js + TypeScript para registrar e consultar gastos via WhatsApp (Evo
 ## Setup
 
 ```powershell
-# 1. Instalar dependências
+# 1. Instalar dependências do backend
 npm install
 
 # 2. Subir PostgreSQL (Docker Desktop deve estar rodando)
@@ -20,66 +20,67 @@ docker compose up -d
 # 3. Aplicar schema
 npm run db:migrate
 
-# 4. Configurar .env (copie de .env.example e preencha ANTHROPIC_API_KEY)
+# 4. Configurar .env (copie de .env.example e preencha as chaves)
 
-# 5. Iniciar servidor
+# 5. Iniciar backend
+npm run dev
+
+# 6. Dashboard (outro terminal)
+cd dashboard
+npm install
+copy .env.local.example .env.local
 npm run dev
 ```
 
-O servidor sobe em `http://localhost:3000`.
+| Serviço | URL |
+|---------|-----|
+| Backend API | http://localhost:3000 |
+| Dashboard | http://localhost:3001 |
+| Webhook | POST http://localhost:3000/webhook |
 
-## Endpoints
+## Endpoints da API
 
-| Método | Rota | Descrição |
-|--------|------|-----------|
-| GET | `/health` | Health check + conexão com banco |
-| POST | `/webhook` | Recebe eventos da Evolution API |
+| Método | Rota | Auth | Descrição |
+|--------|------|------|-----------|
+| GET | `/health` | — | Health check |
+| POST | `/webhook` | — | Eventos Evolution API |
+| POST | `/api/auth/request-otp` | — | Envia OTP via WhatsApp |
+| POST | `/api/auth/verify-otp` | — | Valida OTP, retorna JWT |
+| GET | `/api/expenses?period=` | JWT | Lista de gastos |
+| GET | `/api/expenses/summary?period=` | JWT | Totais por categoria |
+
+Períodos: `hoje`, `semana`, `mes`
+
+## Dashboard
+
+1. Acesse http://localhost:3001
+2. Informe seu número de WhatsApp (com DDI)
+3. Receba o código OTP no WhatsApp
+4. Visualize total, gráfico por categoria e lista de gastos
 
 ## Testar webhook localmente
 
-Simule um evento `messages.upsert`:
-
 ```powershell
-curl -X POST http://localhost:3000/webhook `
-  -H "Content-Type: application/json" `
-  -d '{
-    "event": "messages.upsert",
-    "instance": "botml",
-    "data": {
-      "key": {
-        "remoteJid": "5511999999999@s.whatsapp.net",
-        "fromMe": false,
-        "id": "TEST123"
-      },
-      "pushName": "Teste",
-      "message": {
-        "conversation": "Bento, gastei 30 reais com um lanche"
-      },
-      "messageType": "conversation"
-    }
-  }'
+Invoke-RestMethod -Method POST -Uri http://localhost:3000/webhook -ContentType "application/json" -Body '{"event":"messages.upsert","instance":"botml","data":{"key":{"remoteJid":"5511999999999@s.whatsapp.net","fromMe":false,"id":"TEST123"},"pushName":"Teste","message":{"conversation":"Bento, gastei 30 reais com um lanche"},"messageType":"conversation"}}'
 ```
-
-> Resposta imediata: `200 {"received":true}`. O processamento é assíncrono.
-
-## Configurar webhook na Evolution API
-
-Aponte o webhook da instância `botml` para a URL pública do backend (ex.: ultrahook ou deploy). Use a variável `WHATSAPP_WEBHOOK_URL` como referência.
 
 ## Estrutura
 
 ```
-src/
-  config/       # Variáveis de ambiente
-  db/           # Pool PostgreSQL e migrations
-  repositories/ # Acesso a dados
-  routes/       # Express routes
-  services/     # LLM, WhatsApp, processamento
-  types/        # Tipos TypeScript
-  utils/        # Formatação
-sql/
-  schema.sql    # Schema do banco
+src/              # Backend Express
+dashboard/        # Frontend Next.js
+sql/schema.sql    # Schema PostgreSQL
 ```
+
+## Comandos no WhatsApp (Fase 6)
+
+| Exemplo | Ação |
+|---------|------|
+| Áudio: "gastei 30 reais com lanche" | Transcreve (Whisper) e registra |
+| "apaga o último gasto" | Exclui o gasto mais recente |
+| "corrige o último para 50 reais" | Atualiza valor/categoria/descrição |
+
+> Áudio requer `OPENAI_API_KEY` configurada no `.env`.
 
 ## Fases do projeto
 
@@ -87,7 +88,8 @@ sql/
 - [x] Fase 2 — Webhook receiver
 - [x] Fase 3 — Parser com Claude API
 - [x] Fase 4 — Persistência e resposta WhatsApp
-- [ ] Fase 5 — Dashboard Next.js
-- [ ] Fase 6 — Refinamentos (áudio, correção, onboarding)
+- [x] Fase 5 — Dashboard Next.js + OTP
+- [x] Fase 6 (parcial) — Áudio, correção/exclusão do último gasto
+- [ ] Fase 6 — Onboarding, rate limiting, exportação, app mobile
 
 Consulte `BENTO_SPEC.md` para especificação completa.
