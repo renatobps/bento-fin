@@ -8,6 +8,8 @@ export interface Expense {
   description: string | null;
   expense_date: string;
   source: string;
+  payment_method?: string;
+  card_name?: string | null;
 }
 
 export interface ExpenseWithCategory extends Expense {
@@ -23,11 +25,13 @@ export async function createExpense(params: {
   description: string | null;
   expenseDate: string;
   source?: string;
+  paymentMethod?: string;
+  cardName?: string | null;
 }): Promise<Expense> {
   const result = await query<Expense>(
-    `INSERT INTO expenses (user_id, amount, category_id, description, expense_date, source)
-     VALUES ($1, $2, $3, $4, $5, $6)
-     RETURNING id, user_id, amount, category_id, description, expense_date, source`,
+    `INSERT INTO expenses (user_id, amount, category_id, description, expense_date, source, payment_method, card_name)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+     RETURNING id, user_id, amount, category_id, description, expense_date, source, payment_method, card_name`,
     [
       params.userId,
       params.amount,
@@ -35,6 +39,8 @@ export async function createExpense(params: {
       params.description,
       params.expenseDate,
       params.source ?? "text",
+      params.paymentMethod ?? "dinheiro",
+      params.cardName ?? null,
     ]
   );
 
@@ -139,7 +145,7 @@ export async function getLastExpense(userId: number): Promise<ExpenseWithCategor
      FROM expenses e
      JOIN categories c ON c.id = e.category_id
      WHERE e.user_id = $1
-     ORDER BY e.created_at DESC
+     ORDER BY e.created_at DESC, e.id DESC
      LIMIT 1`,
     [userId]
   );
