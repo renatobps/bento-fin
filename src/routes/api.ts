@@ -12,6 +12,9 @@ import {
   upsertSpendingLimits,
 } from "../repositories/spending-limits.js";
 import { getTotalForPeriod } from "../repositories/expenses.js";
+import { calculateBalance } from "../services/balance-calculator.js";
+import { getIncomeForPeriod } from "../repositories/income.js";
+import { getCreditCards } from "../repositories/credit-cards.js";
 
 function parsePeriod(value: unknown): ExpensePeriod | null {
   if (value === "hoje" || value === "semana" || value === "mes") {
@@ -138,5 +141,62 @@ apiRouter.put("/limits", async (req: Request, res: Response) => {
   } catch (err) {
     console.error("Erro ao salvar limites:", err);
     res.status(500).json({ error: "Falha ao salvar limites" });
+  }
+});
+
+apiRouter.get("/balance", async (req: Request, res: Response) => {
+  try {
+    const userId = req.auth!.userId;
+    const balance = await calculateBalance(userId);
+    res.json(balance);
+  } catch (err) {
+    console.error("Erro ao buscar saldo:", err);
+    res.status(500).json({ error: "Falha ao buscar saldo" });
+  }
+});
+
+apiRouter.get("/income", async (req: Request, res: Response) => {
+  try {
+    const period = parsePeriod(req.query.period) ?? "mes";
+    const userId = req.auth!.userId;
+
+    const income = await getIncomeForPeriod(userId, period);
+    const total = income.reduce((sum, i) => sum + parseAmount(i.amount), 0);
+
+    res.json({
+      period,
+      total,
+      income: income.map((i) => ({
+        id: i.id,
+        amount: parseAmount(i.amount),
+        category: i.category_name,
+        categoryIcon: i.category_icon,
+        description: i.description,
+        incomeDate: formatDateOnly(i.income_date),
+        createdAt: toISOString(i.created_at!),
+        source: i.source,
+      })),
+    });
+  } catch (err) {
+    console.error("Erro ao buscar receitas:", err);
+    res.status(500).json({ error: "Falha ao buscar receitas" });
+  }
+});
+
+apiRouter.get("/credit/cards", async (req: Request, res: Response) => {
+  try {
+    const userId = req.auth!.userId;
+    const cards = await getCreditCards(userId);
+
+    res.json({
+      cards: cards.map((c) => ({
+        id: c.id,
+        name: c.name,
+        creditLimit: c.credit_limit ? parseAmount(c.credit_limit) : null,
+      })),
+    });
+  } catch (err) {
+    console.error("Erro ao buscar cartões:", err);
+    res.status(500).json({ error: "Falha ao buscar cartões" });
   }
 });
