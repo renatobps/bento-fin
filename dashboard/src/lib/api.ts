@@ -54,6 +54,43 @@ export interface LimitsInput {
   monthlyLimit: number | null;
 }
 
+export interface BalanceSummary {
+  initialBalance: number;
+  totalIncome: number;
+  totalExpenses: number;
+  totalCreditPayments: number;
+  availableBalance: number;
+  totalCreditDebt: number;
+  creditByCard: Array<{ cardName: string; total: number }>;
+}
+
+export interface IncomeItem {
+  id: number;
+  amount: number;
+  category: string;
+  categoryIcon: string | null;
+  description: string | null;
+  incomeDate: string;
+  createdAt: string;
+  source: string;
+}
+
+export interface IncomeResponse {
+  period: Period;
+  total: number;
+  income: IncomeItem[];
+}
+
+export interface CreditCardItem {
+  id: number;
+  name: string;
+  creditLimit: number | null;
+}
+
+export interface CreditCardsResponse {
+  cards: CreditCardItem[];
+}
+
 async function apiFetch<T>(
   path: string,
   options: RequestInit = {},
@@ -121,6 +158,21 @@ export async function updateLimits(
     method: "PUT",
     body: JSON.stringify(limits),
   }, token);
+}
+
+export async function fetchBalance(token: string): Promise<BalanceSummary> {
+  return apiFetch("/api/balance", {}, token);
+}
+
+export async function fetchIncome(
+  token: string,
+  period: Period
+): Promise<IncomeResponse> {
+  return apiFetch(`/api/income?period=${period}`, {}, token);
+}
+
+export async function fetchCreditCards(token: string): Promise<CreditCardsResponse> {
+  return apiFetch("/api/credit/cards", {}, token);
 }
 
 export function formatCurrency(value: number): string {

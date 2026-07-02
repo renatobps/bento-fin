@@ -17,6 +17,8 @@ import {
   type Period,
   type CategorySummary,
   type ExpenseItem,
+  type IncomeItem,
+  type BalanceSummary,
 } from "@/lib/api";
 
 const CHART_COLORS = [
@@ -27,6 +29,114 @@ const CHART_COLORS = [
   "#F5F5F5",
   "#1B263B",
 ];
+
+interface BalanceCardProps {
+  balance: BalanceSummary | null;
+}
+
+export function BalanceCard({ balance }: BalanceCardProps) {
+  const available = balance?.availableBalance ?? 0;
+  const isPositive = available >= 0;
+
+  return (
+    <div className="mb-6 rounded-2xl border border-bento-gold/25 bg-gradient-to-br from-bento-navy-muted to-bento-navy p-6 shadow-xl shadow-black/20">
+      <p className="text-sm font-medium uppercase tracking-widest text-bento-gold">
+        Saldo disponível
+      </p>
+      <p
+        className={`mt-2 font-display text-4xl ${
+          isPositive ? "text-emerald-400" : "text-red-400"
+        }`}
+      >
+        {formatCurrency(available)}
+      </p>
+      <p className="mt-3 text-sm text-bento-offwhite/60">
+        Receitas {formatCurrency(balance?.totalIncome ?? 0)} | Gastos{" "}
+        {formatCurrency(balance?.totalExpenses ?? 0)} | Crédito{" "}
+        {formatCurrency(balance?.totalCreditDebt ?? 0)}
+      </p>
+    </div>
+  );
+}
+
+interface IncomeListProps {
+  income: IncomeItem[];
+}
+
+export function IncomeList({ income }: IncomeListProps) {
+  if (income.length === 0) {
+    return (
+      <p className="py-8 text-center text-bento-offwhite/40">
+        Nenhuma receita registrada neste período
+      </p>
+    );
+  }
+
+  return (
+    <ul className="divide-y divide-bento-gold/10">
+      {income.map((item) => (
+        <li
+          key={item.id}
+          className="flex items-center justify-between py-4"
+        >
+          <div className="flex items-center gap-3">
+            <span className="text-2xl">{item.categoryIcon ?? "💰"}</span>
+            <div>
+              <p className="font-medium text-bento-offwhite">
+                {item.description ?? item.category}
+              </p>
+              <p className="text-sm text-bento-offwhite/50">
+                {item.category} ·{" "}
+                {formatExpenseDateTime(item.incomeDate, item.createdAt)}
+              </p>
+            </div>
+          </div>
+          <span className="font-semibold text-emerald-400">
+            {formatCurrency(item.amount)}
+          </span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+interface CreditSummaryProps {
+  balance: BalanceSummary | null;
+}
+
+export function CreditSummary({ balance }: CreditSummaryProps) {
+  const totalDebt = balance?.totalCreditDebt ?? 0;
+  const byCard = balance?.creditByCard ?? [];
+
+  return (
+    <div className="rounded-2xl border border-bento-gold/10 bg-bento-navy-muted p-6">
+      <h2 className="mb-4 font-display text-lg text-bento-offwhite">
+        Crédito
+      </h2>
+      <p className="font-display text-2xl text-bento-gold">
+        {formatCurrency(totalDebt)}
+      </p>
+      <p className="mt-1 text-sm text-bento-offwhite/50">Dívida total no crédito</p>
+      {byCard.length > 0 ? (
+        <ul className="mt-4 space-y-2">
+          {byCard.map((card) => (
+            <li
+              key={card.cardName}
+              className="flex items-center justify-between border-b border-bento-gold/5 pb-2 last:border-0"
+            >
+              <span className="text-bento-offwhite/80">{card.cardName}</span>
+              <span className="font-semibold text-bento-offwhite">
+                {formatCurrency(card.total)}
+              </span>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="mt-4 text-bento-offwhite/40">Sem dívidas no crédito</p>
+      )}
+    </div>
+  );
+}
 
 interface PeriodFilterProps {
   period: Period;

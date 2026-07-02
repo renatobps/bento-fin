@@ -3,19 +3,26 @@
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
+  BalanceCard,
   CategoryChart,
+  CreditSummary,
   ExpenseList,
+  IncomeList,
   PeriodFilter,
 } from "@/components/dashboard";
 import { BrandLogo } from "@/components/brand-logo";
 import { SpendingLimitsPanel } from "@/components/spending-limits";
 import {
+  fetchBalance,
   fetchExpenses,
+  fetchIncome,
   fetchSummary,
   formatCurrency,
   type Period,
   type ExpensesResponse,
   type SummaryResponse,
+  type IncomeResponse,
+  type BalanceSummary,
 } from "@/lib/api";
 import { clearSession, getToken, getUser, type StoredUser } from "@/lib/auth";
 
@@ -24,6 +31,8 @@ export default function DashboardPage() {
   const [period, setPeriod] = useState<Period>("mes");
   const [expenses, setExpenses] = useState<ExpensesResponse | null>(null);
   const [summary, setSummary] = useState<SummaryResponse | null>(null);
+  const [balance, setBalance] = useState<BalanceSummary | null>(null);
+  const [income, setIncome] = useState<IncomeResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [user, setUser] = useState<StoredUser | null>(null);
@@ -38,12 +47,16 @@ export default function DashboardPage() {
     setLoading(true);
     setError("");
     try {
-      const [expData, sumData] = await Promise.all([
+      const [expData, sumData, balanceData, incomeData] = await Promise.all([
         fetchExpenses(token, p),
         fetchSummary(token, p),
+        fetchBalance(token),
+        fetchIncome(token, p),
       ]);
       setExpenses(expData);
       setSummary(sumData);
+      setBalance(balanceData);
+      setIncome(incomeData);
     } catch (err) {
       if (err instanceof Error && err.message.includes("Token")) {
         clearSession();
@@ -91,6 +104,8 @@ export default function DashboardPage() {
       </header>
 
       <main className="mx-auto max-w-5xl px-4 py-8">
+        <BalanceCard balance={balance} />
+
         <div className="mb-6">
           <PeriodFilter period={period} onChange={setPeriod} />
         </div>
@@ -157,6 +172,17 @@ export default function DashboardPage() {
                 Gastos recentes
               </h2>
               <ExpenseList expenses={expenses?.expenses ?? []} />
+            </div>
+
+            <div className="mb-6 rounded-2xl border border-bento-gold/10 bg-bento-navy-muted p-6">
+              <h2 className="mb-4 font-display text-lg text-bento-offwhite">
+                Receitas do período
+              </h2>
+              <IncomeList income={income?.income ?? []} />
+            </div>
+
+            <div className="mb-6">
+              <CreditSummary balance={balance} />
             </div>
 
             <div className="mt-6">
