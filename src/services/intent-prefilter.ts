@@ -4,7 +4,6 @@ import {
   normalizeForMatching,
 } from "../utils/financial-keywords.js";
 import {
-  detectPaymentMethod,
   extractAmountFromText,
 } from "../utils/amount-parser.js";
 import { extractCardNameFromText } from "../utils/card-name.js";
@@ -64,21 +63,8 @@ export function prefilterIntent(
   const amount = extractAmountFromText(trimmed);
   const normalized = normalizeForMatching(trimmed);
 
-  if (amount !== null && /\b(gastei|paguei|comprei)\b/.test(normalized)) {
-    return {
-      ...emptyParsed("registrar_gasto", 0.95),
-      valor: amount,
-      payment_method: detectPaymentMethod(trimmed),
-      descricao: null,
-    };
-  }
-
-  if (amount !== null && /\b(ganhei|recebi)\b/.test(normalized)) {
-    return {
-      ...emptyParsed("registrar_receita", 0.95),
-      valor: amount,
-    };
-  }
+  // Gastos e receitas vão para o LLM — precisa extrair categoria e descrição
+  // (ex: "gastei 5 com token" ou "comprei 123 em carne").
 
   const isCardLimitUpdate =
     amount !== null &&

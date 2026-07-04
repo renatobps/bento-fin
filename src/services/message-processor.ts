@@ -27,6 +27,8 @@ import {
   getTodayISO,
   parseAmount,
 } from "../utils/format.js";
+import { extractAmountFromText, detectPaymentMethod } from "../utils/amount-parser.js";
+import { extractCardNameFromText } from "../utils/card-name.js";
 import { checkSpendingLimits, getLimitConsultationResponse } from "./spending-limit-checker.js";
 import {
   getIncomeCategoryByName,
@@ -34,12 +36,13 @@ import {
 } from "../repositories/income-categories.js";
 import { createIncome } from "../repositories/income.js";
 import { createCreditPayment } from "../repositories/credit-payments.js";
-import { getCreditDebtByCard } from "../repositories/credit-cards.js";
+import { getCreditDebtByCard, getCreditCards, updateCreditCardLimit } from "../repositories/credit-cards.js";
 import {
   calculateBalance,
   formatBalanceSummary,
   formatCreditSummary,
 } from "./balance-calculator.js";
+import { personalizeMessage } from "../utils/user-display.js";
 import {
   handleOnboardingStep,
   isOnboardingContext,
@@ -210,7 +213,9 @@ export async function processMessage(msg: IncomingMessage): Promise<void> {
   if (isNewUser && !(await needsOnboarding(user.id))) {
     await sendWhatsAppText({
       phone: msg.phone,
-      text: `👋 Olá! Sou o *Bento*, seu assistente financeiro no WhatsApp.
+      text: personalizeMessage(
+        user.name,
+        `👋 Olá! Sou o *Bento*, seu assistente financeiro no WhatsApp.
 
 Veja como me usar:
 • *Registrar gasto:* "gastei 30 reais com almoço" ou "gastei 20 com material e 30 com lanche"
@@ -221,7 +226,8 @@ Veja como me usar:
 • *Corrigir último gasto:* "corrige para 35 reais"
 • *Apagar último gasto:* "apaga o último gasto"
 
-Pronto! Pode começar. 🎯`,
+Pronto! Pode começar. 🎯`
+      ),
     });
   }
 
@@ -241,8 +247,9 @@ Pronto! Pode começar. 🎯`,
       responseText =
         "Não entendi sua mensagem. Quer registrar um gasto ou consultar seus limites? Ex: \"gastei 30 reais\" ou \"quanto gastei hoje?\".";
       success = true;
-    } else if (awaitingValue && parsed.valor !== null) {
-      const amount = parsed.valor;
+    } else if (awaitingValue) {
+      const amount = parsed.valor ?? extractAmountFromText(msg.text);
+      if (amount !== null) {
       const categoryName = normalizeCategory(
         pending?.partial_category ?? parsed.categoria
       );
@@ -251,7 +258,8 @@ Pronto! Pode começar. 🎯`,
         pending?.partial_description ?? parsed.descricao ?? null;
       const expenseDate =
         pending?.partial_expense_date ?? parsed.expense_date ?? getTodayISO();
-      const paymentMethod = parsed.payment_method ?? "dinheiro";
+      const paymentMethod =
+        parsed.payment_method ?? detectPaymentMethod(msg.text) ?? "dinheiro";
 
       await createExpense({
         userId: user.id,
@@ -279,6 +287,10 @@ Pronto! Pode começar. 🎯`,
         responseText = `Gasto registrado: ${line} · ${formatPaymentMethodLabel(paymentMethod)}\nSaldo disponível: ${formatCurrency(balance.availableBalance)}`;
       }
       success = true;
+      } else {
+        responseText = "Não consegui identificar o valor. Quanto foi exatamente?";
+        success = true;
+      }
     } else if (parsed.intent === "registrar_gasto") {
       const items = extractExpensesFromParsed(parsed);
       const expectedCount = parsed.gastos?.length ?? (parsed.valor !== null ? 1 : 0);
@@ -367,6 +379,49 @@ Pronto! Pode começar. 🎯`,
     } else if (parsed.intent === "consultar_credito") {
       responseText = await formatCreditSummary(user.id);
       success = true;
+    } else if (parsed.intent === "atualizar_limite_cartao") {
+      if (parsed.valor === null || parsed.valor <= 0) {
+        responseText =
+          'Informe o novo limite. Ex: "limite do Nubank 5000" ou "atualiza limite Itaú para 3000"';
+        success = true;
+      } else {
+        const cardName =
+          parsed.card_name ?? extractCardNameFromText(msg.text);
+        if (!cardName) {
+          const cards = await getCreditCards(user.id);
+          if (cards.length === 0) {
+            responseText =
+              'Qual cartão? Ex: "limite do Nubank 5000"';
+          } else if (cards.length === 1) {
+            const { card, created } = await updateCreditCardLimit(
+              user.id,
+              cards[0].name,
+              parsed.valor
+            );
+            responseText = created
+              ? `Cartão ${card.name} cadastrado com limite ${formatCurrency(parsed.valor)}`
+              : `Limite do ${card.name} atualizado para ${formatCurrency(parsed.valor)}`;
+          } else {
+            const list = cards
+              .map(
+                (c) =>
+                  `• ${c.name}: ${formatCurrency(parseAmount(c.credit_limit ?? "0"))}`
+              )
+              .join("\n");
+            responseText = `Qual cartão você quer atualizar? Seus cartões:\n${list}\n\nEx: "limite do Nubank 5000"`;
+          }
+        } else {
+          const { card, created } = await updateCreditCardLimit(
+            user.id,
+            cardName,
+            parsed.valor
+          );
+          responseText = created
+            ? `Cartão ${card.name} cadastrado com limite ${formatCurrency(parsed.valor)}`
+            : `Limite do ${card.name} atualizado para ${formatCurrency(parsed.valor)}`;
+        }
+        success = true;
+      }
     } else if (parsed.intent === "consultar_gastos") {
       const period = parsed.periodo ?? "hoje";
       const expenses = await getExpensesForPeriod(user.id, period);
@@ -402,7 +457,8 @@ Pronto! Pode começar. 🎯`,
     } else if (parsed.intent === "consultar_limites") {
       responseText = await getLimitConsultationResponse(
         user.id,
-        parsed.periodo
+        parsed.periodo,
+        user.name
       );
       success = true;
     } else if (parsed.intent === "excluir_ultimo_gasto") {
@@ -473,10 +529,16 @@ Pronto! Pode começar. 🎯`,
       "Desculpe, tive um problema ao processar sua mensagem. Tente novamente em instantes.";
   }
 
-  await respondAndLog(user.id, msg, responseText, success, {
-    inputTokens,
-    outputTokens,
-    detectedIntent,
-    intentSource,
-  });
+  await respondAndLog(
+    user.id,
+    msg,
+    personalizeMessage(user.name, responseText),
+    success,
+    {
+      inputTokens,
+      outputTokens,
+      detectedIntent,
+      intentSource,
+    }
+  );
 }

@@ -6,6 +6,7 @@ export type MessageIntent =
   | "consultar_saldo"
   | "consultar_credito"
   | "consultar_limites"
+  | "atualizar_limite_cartao"
   | "excluir_ultimo_gasto"
   | "corrigir_ultimo_gasto"
   | "cumprimento"

@@ -5,6 +5,14 @@ export interface StoredUser {
   id: number;
   phone: string;
   name: string | null;
+  email?: string | null;
+}
+
+export function updateStoredUser(partial: Partial<StoredUser>): void {
+  const current = getUser();
+  const token = getToken();
+  if (!current || !token) return;
+  saveSession(token, { ...current, ...partial });
 }
 
 export function getToken(): string | null {

@@ -41,6 +41,14 @@ export async function getCategoryByName(name: CategoryName): Promise<Category> {
   return result.rows[0];
 }
 
+export async function getCategoryById(id: number): Promise<Category | null> {
+  const result = await query<Category>(
+    "SELECT id, name, icon FROM categories WHERE id = $1",
+    [id]
+  );
+  return result.rows[0] ?? null;
+}
+
 export async function getAllCategories(): Promise<Category[]> {
   const result = await query<Category>(
     "SELECT id, name, icon FROM categories ORDER BY id"

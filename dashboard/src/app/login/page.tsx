@@ -48,7 +48,7 @@ export default function LoginPage() {
     <div className="flex min-h-full flex-1 items-center justify-center bg-bento-navy px-4 py-10">
       <div className="w-full max-w-md">
         <div className="mb-8 flex flex-col items-center text-center">
-          <BrandLogo size="lg" className="mb-6" />
+          <BrandLogo size="lg" className="mb-6" priority />
           <p className="text-sm text-bento-offwhite/70">
             Tradição, solidez e crescimento — seus gastos direto no WhatsApp
           </p>

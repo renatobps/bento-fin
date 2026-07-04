@@ -43,3 +43,21 @@ export async function getTotalCreditPayments(userId: number): Promise<number> {
 
   return parseFloat(result.rows[0]?.total ?? "0");
 }
+
+export async function getCreditPaymentsForMonth(
+  userId: number,
+  startDate: string,
+  endDate: string
+): Promise<CreditPayment[]> {
+  const result = await query<CreditPayment>(
+    `SELECT id, user_id, amount, card_name, payment_date, source
+     FROM credit_payments
+     WHERE user_id = $1
+       AND payment_date >= $2::date
+       AND payment_date <= $3::date
+     ORDER BY payment_date DESC, id DESC`,
+    [userId, startDate, endDate]
+  );
+
+  return result.rows;
+}

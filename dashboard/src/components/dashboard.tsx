@@ -21,6 +21,9 @@ import {
   type BalanceSummary,
 } from "@/lib/api";
 
+export { FinanceOverviewCards } from "@/components/finance-overview-cards";
+import { FinanceOverviewCards } from "@/components/finance-overview-cards";
+
 const CHART_COLORS = [
   "#D4AF37",
   "#B8942E",
@@ -34,28 +37,14 @@ interface BalanceCardProps {
   balance: BalanceSummary | null;
 }
 
+/** @deprecated Use FinanceOverviewCards */
 export function BalanceCard({ balance }: BalanceCardProps) {
-  const available = balance?.availableBalance ?? 0;
-  const isPositive = available >= 0;
-
   return (
-    <div className="mb-6 rounded-2xl border border-bento-gold/25 bg-gradient-to-br from-bento-navy-muted to-bento-navy p-6 shadow-xl shadow-black/20">
-      <p className="text-sm font-medium uppercase tracking-widest text-bento-gold">
-        Saldo disponível
-      </p>
-      <p
-        className={`mt-2 font-display text-4xl ${
-          isPositive ? "text-emerald-400" : "text-red-400"
-        }`}
-      >
-        {formatCurrency(available)}
-      </p>
-      <p className="mt-3 text-sm text-bento-offwhite/60">
-        Receitas {formatCurrency(balance?.totalIncome ?? 0)} | Gastos{" "}
-        {formatCurrency(balance?.totalExpenses ?? 0)} | Crédito{" "}
-        {formatCurrency(balance?.totalCreditDebt ?? 0)}
-      </p>
-    </div>
+    <FinanceOverviewCards
+      balance={balance}
+      incomeTotal={balance?.totalIncome ?? 0}
+      expensesTotal={balance?.totalExpenses ?? 0}
+    />
   );
 }
 

@@ -26,6 +26,21 @@ export function normalizeIncomeCategory(name: string | null): IncomeCategoryName
   return "outros";
 }
 
+export async function getAllIncomeCategories(): Promise<IncomeCategory[]> {
+  const result = await query<IncomeCategory>(
+    "SELECT id, name, icon FROM income_categories ORDER BY id"
+  );
+  return result.rows;
+}
+
+export async function getIncomeCategoryById(id: number): Promise<IncomeCategory | null> {
+  const result = await query<IncomeCategory>(
+    "SELECT id, name, icon FROM income_categories WHERE id = $1",
+    [id]
+  );
+  return result.rows[0] ?? null;
+}
+
 export async function getIncomeCategoryByName(
   name: string
 ): Promise<IncomeCategory> {

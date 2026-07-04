@@ -1,43 +1,45 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useCallback, useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { AddTransactionMenu } from "@/components/add-transaction-menu";
+import { FinanceOverviewCards } from "@/components/finance-overview-cards";
+import { DashboardShell } from "@/components/dashboard-shell";
 import {
-  BalanceCard,
-  CategoryChart,
-  CreditSummary,
-  ExpenseList,
-  IncomeList,
-  PeriodFilter,
-} from "@/components/dashboard";
-import { BrandLogo } from "@/components/brand-logo";
-import { SpendingLimitsPanel } from "@/components/spending-limits";
+  DashboardReports,
+  type CreditCardUsage,
+} from "@/components/dashboard-reports";
+import { MonthNavigator } from "@/components/month-navigator";
+import { useTransactionModal } from "@/hooks/use-transaction-modal";
 import {
   fetchBalance,
-  fetchExpenses,
-  fetchIncome,
-  fetchSummary,
+  fetchCreditCards,
+  fetchExpensesByMonth,
+  fetchIncomeByMonth,
   formatCurrency,
-  type Period,
-  type ExpensesResponse,
-  type SummaryResponse,
-  type IncomeResponse,
-  type BalanceSummary,
 } from "@/lib/api";
-import { clearSession, getToken, getUser, type StoredUser } from "@/lib/auth";
+import { groupByCategory } from "@/lib/aggregations";
+import { parseMonthFromSearchParams } from "@/lib/month";
+import { getToken } from "@/lib/auth";
 
-export default function DashboardPage() {
+function DashboardContent() {
   const router = useRouter();
-  const [period, setPeriod] = useState<Period>("mes");
-  const [expenses, setExpenses] = useState<ExpensesResponse | null>(null);
-  const [summary, setSummary] = useState<SummaryResponse | null>(null);
-  const [balance, setBalance] = useState<BalanceSummary | null>(null);
-  const [income, setIncome] = useState<IncomeResponse | null>(null);
+  const searchParams = useSearchParams();
+  const month = parseMonthFromSearchParams(searchParams);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [user, setUser] = useState<StoredUser | null>(null);
+  const [balance, setBalance] = useState<Awaited<ReturnType<typeof fetchBalance>> | null>(null);
+  const [incomeTotal, setIncomeTotal] = useState(0);
+  const [expensesTotal, setExpensesTotal] = useState(0);
+  const [expenseCategories, setExpenseCategories] = useState(
+    [] as ReturnType<typeof groupByCategory>
+  );
+  const [incomeCategories, setIncomeCategories] = useState(
+    [] as ReturnType<typeof groupByCategory>
+  );
+  const [creditCards, setCreditCards] = useState<CreditCardUsage[]>([]);
 
-  const loadData = useCallback(async (p: Period) => {
+  const loadData = useCallback(async () => {
     const token = getToken();
     if (!token) {
       router.replace("/login");
@@ -46,151 +48,91 @@ export default function DashboardPage() {
 
     setLoading(true);
     setError("");
+
     try {
-      const [expData, sumData, balanceData, incomeData] = await Promise.all([
-        fetchExpenses(token, p),
-        fetchSummary(token, p),
+      const [balanceData, incomeData, expensesData, cardsData] = await Promise.all([
         fetchBalance(token),
-        fetchIncome(token, p),
+        fetchIncomeByMonth(token, month.year, month.month),
+        fetchExpensesByMonth(token, month.year, month.month),
+        fetchCreditCards(token),
       ]);
-      setExpenses(expData);
-      setSummary(sumData);
+
+      const debtByCard = new Map(
+        balanceData.creditByCard.map((c) => [c.cardName.toLowerCase(), c.total])
+      );
+
       setBalance(balanceData);
-      setIncome(incomeData);
+      setIncomeTotal(incomeData.total);
+      setExpensesTotal(expensesData.total);
+      setExpenseCategories(groupByCategory(expensesData.expenses));
+      setIncomeCategories(groupByCategory(incomeData.income));
+      setCreditCards(
+        cardsData.cards.map((card) => ({
+          name: card.name,
+          limit: card.creditLimit,
+          used: debtByCard.get(card.name.toLowerCase()) ?? 0,
+        }))
+      );
     } catch (err) {
-      if (err instanceof Error && err.message.includes("Token")) {
-        clearSession();
-        router.replace("/login");
-        return;
-      }
       setError(err instanceof Error ? err.message : "Erro ao carregar dados");
     } finally {
       setLoading(false);
     }
-  }, [router]);
+  }, [router, month.year, month.month]);
 
   useEffect(() => {
-    setUser(getUser());
+    loadData();
+  }, [loadData]);
 
-    if (!getToken()) {
-      router.replace("/login");
-      return;
-    }
-    loadData(period);
-  }, [period, loadData, router]);
-
-  function handleLogout() {
-    clearSession();
-    router.replace("/login");
-  }
+  const { openCreate, modal } = useTransactionModal(loadData);
 
   return (
-    <div className="min-h-full bg-bento-navy">
-      <header className="border-b border-bento-gold/15 bg-bento-navy-muted">
-        <div className="mx-auto flex max-w-5xl items-center justify-between px-4 py-4">
-          <BrandLogo size="sm" />
-          <div className="flex items-center gap-4">
-            <p className="hidden text-xs text-bento-offwhite/50 sm:block">
-              {user?.phone ?? ""}
+    <DashboardShell title="Dashboard">
+      <MonthNavigator basePath="/dashboard" />
+
+      {error && (
+        <div className="mb-4 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+          {error}
+        </div>
+      )}
+
+      {loading ? (
+        <p className="py-20 text-center text-bento-offwhite/40">Carregando...</p>
+      ) : (
+        <>
+          <FinanceOverviewCards
+            balance={balance}
+            incomeTotal={incomeTotal}
+            expensesTotal={expensesTotal}
+          />
+          {balance && (
+            <p className="mt-4 text-center text-sm text-bento-offwhite/40">
+              Saldo disponível:{" "}
+              <span className="font-semibold text-bento-offwhite">
+                {formatCurrency(balance.availableBalance)}
+              </span>
             </p>
-            <button
-              onClick={handleLogout}
-              className="text-sm text-bento-offwhite/60 transition hover:text-bento-gold"
-            >
-              Sair
-            </button>
-          </div>
-        </div>
-      </header>
+          )}
 
-      <main className="mx-auto max-w-5xl px-4 py-8">
-        <BalanceCard balance={balance} />
+          <DashboardReports
+            incomeTotal={incomeTotal}
+            expensesTotal={expensesTotal}
+            expenseCategories={expenseCategories}
+            incomeCategories={incomeCategories}
+            creditCards={creditCards}
+          />
+        </>
+      )}
+      <AddTransactionMenu variant="fab" onSelect={openCreate} />
+      {modal}
+    </DashboardShell>
+  );
+}
 
-        <div className="mb-6">
-          <PeriodFilter period={period} onChange={setPeriod} />
-        </div>
-
-        {error && (
-          <div className="mb-4 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
-            {error}
-          </div>
-        )}
-
-        {loading ? (
-          <div className="py-20 text-center text-bento-offwhite/40">
-            Carregando...
-          </div>
-        ) : (
-          <>
-            <div className="mb-6 rounded-2xl border border-bento-gold/25 bg-gradient-to-br from-bento-navy-muted to-bento-navy p-6 shadow-xl shadow-black/20">
-              <p className="text-sm font-medium uppercase tracking-widest text-bento-gold">
-                Total do período
-              </p>
-              <p className="mt-2 font-display text-4xl text-bento-offwhite">
-                {formatCurrency(summary?.total ?? 0)}
-              </p>
-              <p className="mt-2 text-sm text-bento-offwhite/50">
-                {expenses?.expenses.length ?? 0} gasto(s) registrado(s)
-              </p>
-            </div>
-
-            <div className="mb-6 grid gap-6 lg:grid-cols-2">
-              <div className="rounded-2xl border border-bento-gold/10 bg-bento-navy-muted p-6">
-                <h2 className="mb-4 font-display text-lg text-bento-offwhite">
-                  Por categoria
-                </h2>
-                <CategoryChart categories={summary?.categories ?? []} />
-              </div>
-
-              <div className="rounded-2xl border border-bento-gold/10 bg-bento-navy-muted p-6">
-                <h2 className="mb-4 font-display text-lg text-bento-offwhite">
-                  Resumo
-                </h2>
-                <ul className="space-y-3">
-                  {(summary?.categories ?? []).map((cat) => (
-                    <li
-                      key={cat.name}
-                      className="flex items-center justify-between border-b border-bento-gold/5 pb-3 last:border-0"
-                    >
-                      <span className="text-bento-offwhite/80">
-                        {cat.icon} {cat.name}
-                      </span>
-                      <span className="font-semibold text-bento-gold">
-                        {formatCurrency(cat.total)}
-                      </span>
-                    </li>
-                  ))}
-                  {(summary?.categories ?? []).length === 0 && (
-                    <li className="text-bento-offwhite/40">Sem dados</li>
-                  )}
-                </ul>
-              </div>
-            </div>
-
-            <div className="mb-6 rounded-2xl border border-bento-gold/10 bg-bento-navy-muted p-6">
-              <h2 className="mb-4 font-display text-lg text-bento-offwhite">
-                Gastos recentes
-              </h2>
-              <ExpenseList expenses={expenses?.expenses ?? []} />
-            </div>
-
-            <div className="mb-6 rounded-2xl border border-bento-gold/10 bg-bento-navy-muted p-6">
-              <h2 className="mb-4 font-display text-lg text-bento-offwhite">
-                Receitas do período
-              </h2>
-              <IncomeList income={income?.income ?? []} />
-            </div>
-
-            <div className="mb-6">
-              <CreditSummary balance={balance} />
-            </div>
-
-            <div className="mt-6">
-              <SpendingLimitsPanel />
-            </div>
-          </>
-        )}
-      </main>
-    </div>
+export default function DashboardHomePage() {
+  return (
+    <Suspense fallback={<p className="py-20 text-center text-bento-offwhite/40">Carregando...</p>}>
+      <DashboardContent />
+    </Suspense>
   );
 }

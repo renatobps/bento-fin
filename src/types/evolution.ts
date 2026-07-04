@@ -14,6 +14,10 @@ export interface EvolutionMessageData {
   message?: {
     conversation?: string;
     extendedTextMessage?: { text: string };
+    buttonsResponseMessage?: {
+      selectedButtonId?: string;
+      selectedDisplayText?: string;
+    };
     audioMessage?: {
       url?: string;
       mimetype?: string;

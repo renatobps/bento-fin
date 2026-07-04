@@ -6,6 +6,26 @@ interface SendTextParams {
   text: string;
 }
 
+export interface WhatsAppButton {
+  type: "reply";
+  displayText: string;
+  id: string;
+}
+
+interface SendButtonsParams {
+  phone: string;
+  title: string;
+  description: string;
+  buttons: WhatsAppButton[];
+}
+
+export const BENTO_YES_BUTTON_ID = "bento_yes";
+export const BENTO_NO_BUTTON_ID = "bento_no";
+
+function formatPhoneNumber(phone: string): string {
+  return phone.replace(/\D/g, "");
+}
+
 interface MediaBase64Result {
   base64: string;
   mimetype?: string;
@@ -24,25 +44,108 @@ function stripBase64DataUrl(value: string): string {
   return value;
 }
 
+async function fetchWithTimeout(
+  url: string,
+  init: RequestInit,
+  timeoutMs: number,
+  errorMessage: string
+): Promise<Response> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } catch (err) {
+    if (err instanceof Error && err.name === "AbortError") {
+      throw new Error(errorMessage);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 export async function sendWhatsAppText(params: SendTextParams): Promise<void> {
   const url = `${env.whatsapp.apiUrl}/message/sendText/${env.whatsapp.instanceName}`;
 
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      apikey: env.whatsapp.apiKey,
+  const response = await fetchWithTimeout(
+    url,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        apikey: env.whatsapp.apiKey,
+      },
+      body: JSON.stringify({
+        number: formatPhoneJid(params.phone),
+        text: params.text,
+      }),
     },
-    body: JSON.stringify({
-      number: formatPhoneJid(params.phone),
-      text: params.text,
-    }),
-  });
+    10000,
+    "Timeout na Evolution API após 10s"
+  );
 
   if (!response.ok) {
     const body = await response.text();
     throw new Error(`Evolution API erro ${response.status}: ${body}`);
   }
+}
+
+export async function sendWhatsAppButtons(
+  params: SendButtonsParams
+): Promise<void> {
+  const url = `${env.whatsapp.apiUrl}/message/sendButtons/${env.whatsapp.instanceName}`;
+
+  const response = await fetchWithTimeout(
+    url,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        apikey: env.whatsapp.apiKey,
+      },
+      body: JSON.stringify({
+        number: formatPhoneNumber(params.phone),
+        title: params.title,
+        description: params.description,
+        buttons: params.buttons,
+      }),
+    },
+    10000,
+    "Timeout na Evolution API após 10s"
+  );
+
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(`Evolution API erro ${response.status}: ${body}`);
+  }
+}
+
+/** Envia pergunta SIM/NÃO com botões interativos. */
+export async function sendWhatsAppYesNo(params: {
+  phone: string;
+  title: string;
+  description: string;
+  yesId?: string;
+  noId?: string;
+}): Promise<void> {
+  await sendWhatsAppButtons({
+    phone: params.phone,
+    title: params.title,
+    description: params.description,
+    buttons: [
+      {
+        type: "reply",
+        displayText: "SIM",
+        id: params.yesId ?? BENTO_YES_BUTTON_ID,
+      },
+      {
+        type: "reply",
+        displayText: "NÃO",
+        id: params.noId ?? BENTO_NO_BUTTON_ID,
+      },
+    ],
+  });
 }
 
 export async function getMediaBase64(
@@ -62,14 +165,19 @@ export async function getMediaBase64(
   let lastError = "sem resposta";
 
   for (const body of payloads) {
-    const response = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        apikey: env.whatsapp.apiKey,
+    const response = await fetchWithTimeout(
+      url,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          apikey: env.whatsapp.apiKey,
+        },
+        body: JSON.stringify(body),
       },
-      body: JSON.stringify(body),
-    });
+      10000,
+      "Timeout na Evolution API após 10s"
+    );
 
     if (!response.ok) {
       lastError = `${response.status}: ${await response.text()}`;

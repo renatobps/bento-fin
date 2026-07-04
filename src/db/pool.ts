@@ -4,6 +4,13 @@ import { TZ } from "../utils/timezone.js";
 
 export const pool = new Pool({
   connectionString: env.databaseUrl,
+  max: 20,
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 5000,
+});
+
+pool.on("error", (err) => {
+  console.error("Erro inesperado no pool PostgreSQL:", err);
 });
 
 pool.on("connect", (client) => {

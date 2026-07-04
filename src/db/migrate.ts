@@ -36,6 +36,7 @@ const FASE2_STATEMENTS = [
     user_id INTEGER REFERENCES users(id),
     name VARCHAR(50) NOT NULL,
     credit_limit NUMERIC(10,2),
+    billing_due_day SMALLINT,
     created_at TIMESTAMP DEFAULT NOW(),
     UNIQUE(user_id, name)
   )`,
