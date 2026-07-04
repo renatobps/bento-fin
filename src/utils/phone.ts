@@ -1,6 +1,9 @@
 const BRAZIL_COUNTRY = "55";
 
-/** Normaliza para o formato do WhatsApp: 55 + DDD + 8 dígitos (sem o 9 extra do celular) */
+// Sempre armazenar com o dígito 9 — o WhatsApp pode entregar JIDs com ou sem ele,
+// e normalizar para o formato com 9 evita duplicatas.
+
+/** Normaliza para 55 + DDD + 9 dígitos (celular brasileiro com nono dígito). */
 export function normalizePhone(phone: string): string {
   let digits = phone.replace(/\D/g, "");
 
@@ -15,22 +18,20 @@ export function normalizePhone(phone: string): string {
   const ddd = digits.slice(0, 2);
   let local = digits.slice(2);
 
-  // Celular com 9 a mais após o DDD: 998595681 → 98595681 (padrão WhatsApp)
-  if (local.length === 9 && local.startsWith("9")) {
-    local = local.slice(1);
+  if (local.length === 8 && !local.startsWith("9")) {
+    local = "9" + local;
   }
 
-  // Aceita também 10 dígitos locais onde o primeiro já é o 9 do celular (98595681)
+  if (local.length === 9 && local.startsWith("9")) {
+    return BRAZIL_COUNTRY + ddd + local;
+  }
+
   return BRAZIL_COUNTRY + ddd + local;
 }
 
 export function isValidBrazilPhone(phone: string): boolean {
-  const digits = phone.replace(/\D/g, "");
-  const localLen = digits.startsWith(BRAZIL_COUNTRY)
-    ? digits.length - 2
-    : digits.length;
-  if (localLen !== 10 && localLen !== 11) return false;
-  return /^55\d{10}$/.test(normalizePhone(phone));
+  const normalized = normalizePhone(phone);
+  return /^55\d{11}$/.test(normalized);
 }
 
 export function formatPhoneDisplay(phone: string): string {
@@ -38,5 +39,10 @@ export function formatPhoneDisplay(phone: string): string {
   const local = normalized.slice(2);
   const ddd = local.slice(0, 2);
   const number = local.slice(2);
+
+  if (number.length === 9) {
+    return `+55 (${ddd}) ${number.slice(0, 5)}-${number.slice(5)}`;
+  }
+
   return `+55 (${ddd}) ${number.slice(0, 4)}-${number.slice(4)}`;
 }
