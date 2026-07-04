@@ -41,6 +41,15 @@ export const env = {
       proYearly: optionalEnv("STRIPE_PRICE_PRO_YEARLY", ""),
     },
   },
+  ai: {
+    usdToBrlRate: parseFloat(optionalEnv("USD_TO_BRL_RATE", "5.00")),
+    inputCostPerMtk: parseFloat(optionalEnv("CLAUDE_HAIKU_INPUT_COST_PER_MTK", "1.00")),
+    outputCostPerMtk: parseFloat(optionalEnv("CLAUDE_HAIKU_OUTPUT_COST_PER_MTK", "5.00")),
+  },
+  admin: {
+    sessionDurationHours: parseInt(optionalEnv("ADMIN_SESSION_DURATION_HOURS", "8"), 10),
+  },
+  supportEmail: optionalEnv("SUPPORT_EMAIL", "suporte@bento.com.br"),
 };
 
 function warnIfMissing(name: string, value: string, message: string): void {

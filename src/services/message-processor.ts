@@ -83,6 +83,7 @@ function matchHelpOption(text: string): 1 | 2 | 3 | 4 | 5 | null {
 
 function getHelpOptionResponse(option: 1 | 2 | 3 | 4 | 5): string {
   const dashboardUrl = env.frontendUrl;
+  const supportEmail = env.supportEmail;
   switch (option) {
     case 1:
       return `Para registrar um gasto, envie uma mensagem descrevendo o que gastou:
@@ -109,7 +110,7 @@ Você também pode ver tudo detalhado no dashboard: ${dashboardUrl}`;
       return `Para dúvidas sobre assinatura:
 
 • Ver ou cancelar seu plano: ${dashboardUrl}/planos
-• Problema com cobrança: envie um e-mail para suporte@bento.com.br descrevendo o ocorrido
+• Problema com cobrança: envie um e-mail para ${supportEmail} descrevendo o ocorrido
 
 Respondemos em até 24h.`;
     case 4:
@@ -119,11 +120,11 @@ Respondemos em até 24h.`;
 • Mencionar o método: "no crédito", "no pix", "em dinheiro"
 • Para receitas: começar com "recebi" ou "ganhei"
 
-Se o problema persistir, mande um e-mail para suporte@bento.com.br com o exemplo da mensagem que não funcionou.`;
+Se o problema persistir, mande um e-mail para ${supportEmail} com o exemplo da mensagem que não funcionou.`;
     case 5:
       return `Entendido! Nossa equipe de suporte vai te ajudar.
 
-📧 E-mail: suporte@bento.com.br
+📧 E-mail: ${supportEmail}
 ⏱ Respondemos em até 24 horas úteis.
 
 Para agilizar, descreva sua dúvida no e-mail com o maior detalhe possível.`;
