@@ -2,6 +2,7 @@ import { File } from "node:buffer";
 import { env } from "../config/env.js";
 import { getMediaBase64 } from "./evolution.js";
 import type { EvolutionMessageData } from "../types/evolution.js";
+import { withRetry } from "../utils/retry.js";
 
 function extensionFromMime(mimetype?: string, convertedToMp4 = false): string {
   if (convertedToMp4) return "mp4";
@@ -62,16 +63,31 @@ export async function transcribeAudioMessage(
   formData.append("model", "whisper-1");
   formData.append("language", "pt");
 
-  const response = await fetch(
-    "https://api.openai.com/v1/audio/transcriptions",
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: formData,
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 30000);
+
+  let response: Response;
+  try {
+    response = await withRetry(
+      () =>
+        fetch("https://api.openai.com/v1/audio/transcriptions", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+          },
+          body: formData,
+          signal: controller.signal,
+        }),
+      { attempts: 2, baseDelayMs: 2000, label: "Whisper API" }
+    );
+  } catch (err) {
+    if (err instanceof Error && err.name === "AbortError") {
+      throw new Error("Timeout na Whisper API após 30s");
     }
-  );
+    throw err;
+  } finally {
+    clearTimeout(timeoutId);
+  }
 
   if (!response.ok) {
     const body = await response.text();

@@ -3,7 +3,9 @@ import { env } from "../config/env.js";
 import type { IntentSource, ParsedMessage } from "../types/parsed-message.js";
 import { hasFinancialContext, isFinancialIntent } from "../utils/financial-keywords.js";
 import { getTodayISO } from "../utils/format.js";
+import { enrichParsedFromText } from "../utils/amount-parser.js";
 import { prefilterIntent } from "./intent-prefilter.js";
+import { withRetry } from "../utils/retry.js";
 
 const CONFIDENCE_THRESHOLD = 0.7;
 
@@ -11,7 +13,7 @@ const SYSTEM_PROMPT = `Você é o parser do Bento, um assistente financeiro via 
 Analise a mensagem do usuário e retorne APENAS um JSON válido (sem markdown) com os campos:
 
 {
-  "intent": "registrar_gasto" | "registrar_receita" | "pagar_fatura" | "consultar_gastos" | "consultar_saldo" | "consultar_credito" | "consultar_limites" | "excluir_ultimo_gasto" | "corrigir_ultimo_gasto" | "cumprimento" | "fora_contexto" | "clarificacao_resposta",
+  "intent": "registrar_gasto" | "registrar_receita" | "pagar_fatura" | "consultar_gastos" | "consultar_saldo" | "consultar_credito" | "consultar_limites" | "atualizar_limite_cartao" | "excluir_ultimo_gasto" | "corrigir_ultimo_gasto" | "cumprimento" | "fora_contexto" | "clarificacao_resposta",
   "valor": number | null,
   "categoria": "alimentação" | "transporte" | "lazer" | "saúde" | "moradia" | "outros" | null,
   "descricao": string | null,
@@ -37,13 +39,14 @@ Regras de intent:
 - intent=consultar_credito quando quer ver dívida no crédito (ex: "quanto devo no crédito?", "qual minha dívida no cartão?", "total no crédito")
 - intent=consultar_gastos quando pergunta quanto JÁ gastou (hoje/semana/mês)
 - intent=consultar_limites quando pergunta sobre limite de gasto, quanto ainda pode/falta gastar, teto ou orçamento
+- intent=atualizar_limite_cartao quando quer alterar o limite de um cartão de crédito (ex: "atualiza limite do Nubank para 5000", "limite do cartão Itaú 3000", "muda limite Nubank 4000")
 - intent=excluir_ultimo_gasto quando pede para apagar, excluir, desfazer ou remover o último gasto (apenas UM registro)
 - intent=corrigir_ultimo_gasto quando pede para corrigir, alterar ou mudar o último gasto
 - intent=cumprimento para saudações sem conteúdo financeiro (ex: "oi", "bom dia", "olá bento")
 - intent=fora_contexto para qualquer assunto SEM relação com finanças pessoais (ex: clima, notícias, curiosidades, piadas)
 - intent=clarificacao_resposta quando o usuário responde apenas com um valor após pedido de clarificação
 - confianca: 0.0 a 1.0 — quão certo você está da classificação (1.0 = certeza total)
-- valor: extraia números de "30 reais", "R$30", "30,50". null se impossível
+- valor: extraia números de "30 reais", "R$30", "30,50", "100 conto", "100 pal/pila", ou só "100" após gastei/paguei. null se impossível
 - categoria: mapeie para uma das 6 categorias fixas. null se não souber
 - periodo: para consultas de gastos ou limites. Default "hoje" se não especificado. null em consultar_limites só se perguntar todos os limites
 - precisa_clarificacao: true se intent=registrar_gasto mas algum gasto ficou sem valor
@@ -66,12 +69,17 @@ Exemplos:
 "gastei 50 no mercado" → {"intent":"registrar_gasto","valor":50,"categoria":"alimentação","descricao":"mercado","periodo":null,"precisa_clarificacao":false,"expense_date":null,"confianca":0.95,"gastos":null,"payment_method":"dinheiro","card_name":null,"income_category":null}
 "gastei 120 no cinema no crédito Nubank" → {"intent":"registrar_gasto","valor":120,"categoria":"lazer","descricao":"cinema","periodo":null,"precisa_clarificacao":false,"expense_date":null,"confianca":0.94,"gastos":null,"payment_method":"credito","card_name":"Nubank","income_category":null}
 "gastei 50 no almoço no débito" → {"intent":"registrar_gasto","valor":50,"categoria":"alimentação","descricao":"almoço","periodo":null,"precisa_clarificacao":false,"expense_date":null,"confianca":0.93,"gastos":null,"payment_method":"debito","card_name":null,"income_category":null}
+"gastei 200 reais no credito" → {"intent":"registrar_gasto","valor":200,"categoria":"outros","descricao":null,"periodo":null,"precisa_clarificacao":false,"expense_date":null,"confianca":0.94,"gastos":null,"payment_method":"credito","card_name":null,"income_category":null}
+"gastei 100 conto no mercado" → {"intent":"registrar_gasto","valor":100,"categoria":"alimentação","descricao":"mercado","periodo":null,"precisa_clarificacao":false,"expense_date":null,"confianca":0.94,"gastos":null,"payment_method":"dinheiro","card_name":null,"income_category":null}
+"gastei 50 pal no uber" → {"intent":"registrar_gasto","valor":50,"categoria":"transporte","descricao":"uber","periodo":null,"precisa_clarificacao":false,"expense_date":null,"confianca":0.93,"gastos":null,"payment_method":"dinheiro","card_name":null,"income_category":null}
 "gastei 20 reais com material escolar e mais 30 reais com lanche" → {"intent":"registrar_gasto","valor":null,"categoria":null,"descricao":null,"periodo":null,"precisa_clarificacao":false,"expense_date":null,"confianca":0.94,"gastos":[{"valor":20,"categoria":"outros","descricao":"material escolar","expense_date":null},{"valor":30,"categoria":"alimentação","descricao":"lanche","expense_date":null}],"payment_method":null,"card_name":null,"income_category":null}
 "ganhei 1000 de salário" → {"intent":"registrar_receita","valor":1000,"categoria":null,"descricao":"salário","periodo":null,"precisa_clarificacao":false,"expense_date":null,"confianca":0.95,"payment_method":null,"card_name":null,"income_category":"salário"}
 "recebi 500 de freelance" → {"intent":"registrar_receita","valor":500,"categoria":null,"descricao":"freelance","periodo":null,"precisa_clarificacao":false,"expense_date":null,"confianca":0.94,"payment_method":null,"card_name":null,"income_category":"freelance"}
 "paguei a fatura do Nubank de 850" → {"intent":"pagar_fatura","valor":850,"categoria":null,"descricao":null,"periodo":null,"precisa_clarificacao":false,"expense_date":null,"confianca":0.95,"payment_method":null,"card_name":"Nubank","income_category":null}
 "qual meu saldo?" → {"intent":"consultar_saldo","valor":null,"categoria":null,"descricao":null,"periodo":null,"precisa_clarificacao":false,"expense_date":null,"confianca":0.96,"payment_method":null,"card_name":null,"income_category":null}
 "quanto devo no crédito?" → {"intent":"consultar_credito","valor":null,"categoria":null,"descricao":null,"periodo":null,"precisa_clarificacao":false,"expense_date":null,"confianca":0.95,"payment_method":null,"card_name":null,"income_category":null}
+"atualiza limite do Nubank para 5000" → {"intent":"atualizar_limite_cartao","valor":5000,"categoria":null,"descricao":null,"periodo":null,"precisa_clarificacao":false,"expense_date":null,"confianca":0.94,"payment_method":null,"card_name":"Nubank","income_category":null}
+"limite do cartão Itaú 3000" → {"intent":"atualizar_limite_cartao","valor":3000,"categoria":null,"descricao":null,"periodo":null,"precisa_clarificacao":false,"expense_date":null,"confianca":0.93,"payment_method":null,"card_name":"Itaú","income_category":null}
 "quanto ainda posso gastar hoje?" → {"intent":"consultar_limites","valor":null,"categoria":null,"descricao":null,"periodo":"hoje","precisa_clarificacao":false,"expense_date":null,"confianca":0.96,"payment_method":null,"card_name":null,"income_category":null}
 "quanto gastei essa semana?" → {"intent":"consultar_gastos","valor":null,"categoria":null,"descricao":null,"periodo":"semana","precisa_clarificacao":false,"expense_date":null,"confianca":0.96,"payment_method":null,"card_name":null,"income_category":null}
 "50" (após pedido de valor) → {"intent":"clarificacao_resposta","valor":50,"categoria":null,"descricao":null,"periodo":null,"precisa_clarificacao":false,"expense_date":null,"confianca":0.90,"payment_method":null,"card_name":null,"income_category":null}
@@ -128,14 +136,18 @@ async function parseWithLlm(
 
   let response;
   try {
-    response = await client.messages.create(
-      {
-        model: "claude-haiku-4-5-20251001",
-        max_tokens: 768,
-        system: SYSTEM_PROMPT.replace("{{TODAY}}", getTodayISO()),
-        messages: [{ role: "user", content: userContent }],
-      },
-      { timeout: 15000 }
+    response = await withRetry(
+      () =>
+        client.messages.create(
+          {
+            model: "claude-haiku-4-5-20251001",
+            max_tokens: 768,
+            system: SYSTEM_PROMPT.replace("{{TODAY}}", getTodayISO()),
+            messages: [{ role: "user", content: userContent }],
+          },
+          { timeout: 15000 }
+        ),
+      { attempts: 3, baseDelayMs: 1000, label: "Claude API" }
     );
   } catch (err) {
     if (
@@ -158,7 +170,10 @@ async function parseWithLlm(
     throw new Error(`JSON inválido da Claude API: ${raw}`);
   }
 
-  const parsed = JSON.parse(jsonMatch[0]) as ParsedMessage;
+  const parsed = enrichParsedFromText(
+    JSON.parse(jsonMatch[0]) as ParsedMessage,
+    text
+  );
 
   if (typeof parsed.confianca !== "number" || parsed.confianca < 0 || parsed.confianca > 1) {
     parsed.confianca = 0.5;
@@ -181,7 +196,7 @@ export async function classifyMessage(
   const prefiltered = prefilterIntent(text, pendingClarification);
   if (prefiltered) {
     return {
-      parsed: prefiltered,
+      parsed: enrichParsedFromText(prefiltered, text),
       usage: { inputTokens: 0, outputTokens: 0 },
       intentSource: "prefilter",
     };
