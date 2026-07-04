@@ -5,6 +5,7 @@ import { pool } from "./db/pool.js";
 import { webhookRouter } from "./routes/webhook.js";
 import { authRouter } from "./routes/auth.js";
 import { apiRouter } from "./routes/api.js";
+import { sendBillingReminders } from "./services/billing-reminder.js";
 
 const app = express();
 
@@ -70,8 +71,63 @@ app.use("/webhook", webhookRouter);
 app.use("/api/auth", authRouter);
 app.use("/api", apiRouter);
 
+function msUntilNext9amBrasilia(): number {
+  const TZ = "America/Sao_Paulo";
+  const now = new Date();
+
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: TZ,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(now);
+
+  const get = (type: string) =>
+    parseInt(parts.find((p) => p.type === type)?.value ?? "0", 10);
+
+  const year = get("year");
+  const month = get("month");
+  const day = get("day");
+  const hour = get("hour");
+  const minute = get("minute");
+  const second = get("second");
+
+  const nowInTz = new Date(year, month - 1, day, hour, minute, second);
+  let target = new Date(year, month - 1, day, 9, 0, 0, 0);
+
+  if (nowInTz >= target) {
+    target = new Date(year, month - 1, day + 1, 9, 0, 0, 0);
+  }
+
+  const offsetNow = now.getTime() - nowInTz.getTime();
+  return target.getTime() + offsetNow - now.getTime();
+}
+
+function scheduleBillingReminders(): void {
+  const run = () => {
+    sendBillingReminders().catch((err) => {
+      console.error("Erro ao enviar lembretes de fatura:", err);
+    });
+  };
+
+  const initialDelay = msUntilNext9amBrasilia();
+  console.log(
+    `Lembretes de fatura agendados — próximo disparo em ${Math.round(initialDelay / 60000)} min`
+  );
+
+  setTimeout(() => {
+    run();
+    setInterval(run, 24 * 60 * 60 * 1000);
+  }, initialDelay);
+}
+
 app.listen(env.port, () => {
   console.log(`Bento backend rodando na porta ${env.port}`);
   console.log(`Webhook: POST http://localhost:${env.port}/webhook`);
   console.log(`API: http://localhost:${env.port}/api`);
+  scheduleBillingReminders();
 });
