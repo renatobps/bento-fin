@@ -2,6 +2,7 @@ CREATE TABLE IF NOT EXISTS users (
   id SERIAL PRIMARY KEY,
   phone VARCHAR(20) UNIQUE NOT NULL,
   name VARCHAR(100),
+  email VARCHAR(255),
   created_at TIMESTAMP DEFAULT NOW()
 );
 
@@ -30,6 +31,9 @@ CREATE TABLE IF NOT EXISTS expenses (
   source VARCHAR(10) DEFAULT 'text',
   created_at TIMESTAMP DEFAULT NOW()
 );
+
+CREATE INDEX IF NOT EXISTS idx_expenses_user_date ON expenses(user_id, expense_date);
+CREATE INDEX IF NOT EXISTS idx_expenses_user_payment ON expenses(user_id, payment_method);
 
 CREATE TABLE IF NOT EXISTS messages_log (
   id SERIAL PRIMARY KEY,
@@ -119,6 +123,7 @@ CREATE TABLE IF NOT EXISTS credit_cards (
   user_id INTEGER REFERENCES users(id),
   name VARCHAR(50) NOT NULL,
   credit_limit NUMERIC(10,2),
+  billing_due_day SMALLINT,
   created_at TIMESTAMP DEFAULT NOW(),
   UNIQUE(user_id, name)
 );
@@ -135,6 +140,14 @@ CREATE TABLE IF NOT EXISTS credit_payments (
 );
 
 CREATE INDEX IF NOT EXISTS idx_credit_payments_user_date ON credit_payments (user_id, payment_date);
+
+CREATE TABLE IF NOT EXISTS message_dedup (
+  id SERIAL PRIMARY KEY,
+  message_key VARCHAR(100) UNIQUE NOT NULL,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_message_dedup_key ON message_dedup(message_key);
+CREATE INDEX IF NOT EXISTS idx_message_dedup_created ON message_dedup(created_at);
 
 -- Fase 2: saldo inicial por usuário
 CREATE TABLE IF NOT EXISTS account_balance (
