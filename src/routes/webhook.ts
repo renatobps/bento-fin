@@ -1,15 +1,27 @@
 import { Router, Request, Response } from "express";
+import { env } from "../config/env.js";
 import type {
   EvolutionMessageData,
   EvolutionWebhookPayload,
 } from "../types/evolution.js";
 import { extractPhoneFromJid } from "../utils/format.js";
+import { normalizeButtonReply } from "../utils/yes-no-response.js";
 import { enqueueForUser } from "../services/user-queue.js";
+import { shouldProcessMessage } from "../services/message-dedup.js";
 import { processMessage } from "../services/message-processor.js";
 import { transcribeAudioMessage } from "../services/audio-transcriber.js";
 import { sendWhatsAppText } from "../services/evolution.js";
 
 function extractText(data: EvolutionMessageData): string | null {
+  const buttonReply = data.message?.buttonsResponseMessage;
+  if (buttonReply) {
+    const normalized = normalizeButtonReply(
+      buttonReply.selectedButtonId,
+      buttonReply.selectedDisplayText
+    );
+    if (normalized) return normalized;
+  }
+
   if (data.message?.conversation) {
     return data.message.conversation;
   }
@@ -17,6 +29,13 @@ function extractText(data: EvolutionMessageData): string | null {
     return data.message.extendedTextMessage.text;
   }
   return null;
+}
+
+function isButtonResponse(data: EvolutionMessageData): boolean {
+  return (
+    data.messageType === "buttonsResponseMessage" ||
+    !!data.message?.buttonsResponseMessage
+  );
 }
 
 function isAudioMessage(data: EvolutionMessageData): boolean {
@@ -27,7 +46,7 @@ function isAudioMessage(data: EvolutionMessageData): boolean {
 
 function isProcessableMessage(data: EvolutionMessageData): boolean {
   if (data.key.fromMe) return false;
-  return !!extractText(data) || isAudioMessage(data);
+  return !!extractText(data) || isAudioMessage(data) || isButtonResponse(data);
 }
 
 async function processAudioMessage(data: EvolutionMessageData): Promise<void> {
@@ -69,10 +88,33 @@ webhookRouter.get("/", (_req: Request, res: Response) => {
   });
 });
 
-webhookRouter.post("/", (req: Request, res: Response) => {
-  res.status(200).json({ received: true });
+function getWebhookApiKey(req: Request): string | undefined {
+  const header = req.headers.apikey;
+  if (typeof header === "string") return header;
+  if (Array.isArray(header)) return header[0];
+
+  const query = req.query.apikey;
+  if (typeof query === "string") return query;
+
+  return undefined;
+}
+
+webhookRouter.post("/", async (req: Request, res: Response) => {
+  const apiKey = getWebhookApiKey(req);
+  if (apiKey !== env.whatsapp.apiKey) {
+    console.warn("Webhook rejeitado: apikey ausente ou inválida");
+    res.status(401).json({ error: "Não autorizado" });
+    return;
+  }
 
   const payload = req.body as EvolutionWebhookPayload;
+
+  if (payload.instance && payload.instance !== env.whatsapp.instanceName) {
+    res.status(200).json({ received: true, ignored: true });
+    return;
+  }
+
+  res.status(200).json({ received: true });
 
   if (payload.event !== "messages.upsert") {
     return;
@@ -86,6 +128,11 @@ webhookRouter.post("/", (req: Request, res: Response) => {
     if (!isProcessableMessage(data)) continue;
 
     const phone = extractPhoneFromJid(data.key.remoteJid);
+
+    if (!(await shouldProcessMessage(phone, data.key.id))) {
+      console.log(`Mensagem duplicada ignorada (${phone}, id=${data.key.id})`);
+      continue;
+    }
 
     if (isAudioMessage(data)) {
       enqueueForUser(phone, () => processAudioMessage(data)).catch((err) => {
