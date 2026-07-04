@@ -3,7 +3,13 @@ import { setPendingContext } from "../repositories/conversation-state.js";
 import { setInitialBalance } from "../repositories/account-balance.js";
 import { getAccountBalance } from "../repositories/account-balance.js";
 import { upsertCreditCard } from "../repositories/credit-cards.js";
-import { sendWhatsAppText } from "./evolution.js";
+import { extractAmountFromText } from "../utils/amount-parser.js";
+import { extractCardNameFromText } from "../utils/card-name.js";
+import {
+  isNoResponse,
+  isYesResponse,
+} from "../utils/yes-no-response.js";
+import { sendWhatsAppText, sendWhatsAppYesNo } from "./evolution.js";
 
 const CONCLUSION_MESSAGE = `Tudo certo! 🎉 Seu perfil financeiro está configurado.
 
@@ -15,34 +21,73 @@ Agora você pode:
 • "paguei a fatura do Nubank de 850" — registrar pagamento de fatura`;
 
 function extractAmount(text: string): number | null {
-  const normalized = text.replace(/\./g, "").replace(",", ".");
-  const match = normalized.match(/(\d+(?:\.\d+)?)/);
-  if (!match) return null;
-  const value = parseFloat(match[1]);
-  return Number.isFinite(value) && value >= 0 ? value : null;
+  return extractAmountFromText(text);
 }
 
 function extractCardNameAndLimit(
   text: string
 ): { name: string; limit: number } | null {
-  const amount = extractAmount(text);
+  const amount = extractAmountFromText(text);
   if (amount === null) return null;
 
-  const withoutAmount = text
-    .replace(/[\d.,]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+  let name = extractCardNameFromText(text);
 
-  const name = withoutAmount || "Cartão";
-  return { name, limit: amount };
+  if (!name) {
+    const genericWords = new Set([
+      "cartao",
+      "cartão",
+      "limite",
+      "de",
+      "com",
+      "e",
+      "do",
+      "da",
+      "no",
+      "na",
+    ]);
+    const words = text
+      .replace(/[\d.,]+/g, " ")
+      .split(/\s+/)
+      .map((w) => w.trim())
+      .filter(Boolean)
+      .filter((w) => !genericWords.has(w.toLowerCase()));
+
+    if (words.length > 0) {
+      const raw = words[0];
+      name = raw.charAt(0).toUpperCase() + raw.slice(1).toLowerCase();
+    }
+  }
+
+  return { name: name ?? "Cartão", limit: amount };
 }
 
+// Testes manuais:
+// "Nubank 3000" → {name: "Nubank", limit: 3000}
+// "cartão Nubank limite 3000" → {name: "Nubank", limit: 3000}
+// "Inter 2500" → {name: "Inter", limit: 2500}
+
 function isYes(text: string): boolean {
-  return /\bsim\b/i.test(text);
+  return isYesResponse(text);
 }
 
 function isNo(text: string): boolean {
-  return /\bn[aã]o\b/i.test(text);
+  return isNoResponse(text);
+}
+
+async function askCreditCardQuestion(phone: string): Promise<void> {
+  try {
+    await sendWhatsAppYesNo({
+      phone,
+      title: "Cartão de crédito",
+      description: "Você usa cartão de crédito?",
+    });
+  } catch (err) {
+    console.error("Erro ao enviar botões SIM/NÃO, usando texto:", err);
+    await sendWhatsAppText({
+      phone,
+      text: "Ótimo! Você usa cartão de crédito? Responda *sim* ou *não*.",
+    });
+  }
 }
 
 function isDone(text: string): boolean {
@@ -105,10 +150,7 @@ export async function handleOnboardingStep(
 
     await setInitialBalance(userId, amount);
     await setPendingContext(userId, { awaiting_credit_card: true });
-    await sendWhatsAppText({
-      phone,
-      text: "Ótimo! Você usa cartão de crédito? Responda *sim* ou *não*.",
-    });
+    await askCreditCardQuestion(phone);
     return true;
   }
 
@@ -127,10 +169,7 @@ export async function handleOnboardingStep(
       return true;
     }
 
-    await sendWhatsAppText({
-      phone,
-      text: "Responda *sim* ou *não*.",
-    });
+    await askCreditCardQuestion(phone);
     return true;
   }
 
