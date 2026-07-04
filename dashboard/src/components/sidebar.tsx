@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { BrandLogo } from "@/components/brand-logo";
+import { openCrispChat, getSupportEmail } from "@/lib/crisp";
 
 interface NavItem {
   href: string;
@@ -47,6 +48,14 @@ function ProfileIcon() {
   return (
     <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+    </svg>
+  );
+}
+
+function HelpIcon() {
+  return (
+    <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
     </svg>
   );
 }
@@ -117,6 +126,7 @@ interface SidebarNavProps {
 
 export function SidebarNav({ onNavigate }: SidebarNavProps) {
   const pathname = usePathname();
+  const supportEmail = getSupportEmail();
 
   return (
     <nav className="flex flex-1 flex-col gap-1 p-3">
@@ -140,6 +150,35 @@ export function SidebarNav({ onNavigate }: SidebarNavProps) {
           </Link>
         );
       })}
+
+      <div className="my-2 border-t border-bento-gold/10" />
+
+      <button
+        type="button"
+        onClick={() => {
+          openCrispChat();
+          onNavigate?.();
+        }}
+        className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-bento-offwhite/70 transition hover:bg-bento-gold/5 hover:text-bento-offwhite"
+      >
+        <span className="text-bento-offwhite/50">
+          <HelpIcon />
+        </span>
+        Ajuda e suporte
+      </button>
+      <Link
+        href="/suporte"
+        onClick={onNavigate}
+        className="px-3 text-xs text-bento-offwhite/40 transition hover:text-bento-gold"
+      >
+        Central de ajuda
+      </Link>
+      <a
+        href={`mailto:${supportEmail}`}
+        className="px-3 text-xs text-bento-offwhite/40 transition hover:text-bento-gold"
+      >
+        {supportEmail}
+      </a>
     </nav>
   );
 }

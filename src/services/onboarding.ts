@@ -3,13 +3,17 @@ import { setPendingContext } from "../repositories/conversation-state.js";
 import { setInitialBalance } from "../repositories/account-balance.js";
 import { getAccountBalance } from "../repositories/account-balance.js";
 import { upsertCreditCard } from "../repositories/credit-cards.js";
+import { env } from "../config/env.js";
 import { extractAmountFromText } from "../utils/amount-parser.js";
 import { extractCardNameFromText } from "../utils/card-name.js";
 import {
   isNoResponse,
   isYesResponse,
 } from "../utils/yes-no-response.js";
-import { sendWhatsAppText, sendWhatsAppYesNo } from "./evolution.js";
+import {
+  sendWhatsAppTextWithFallback,
+  sendWhatsAppYesNo,
+} from "./evolution.js";
 
 const CONCLUSION_MESSAGE = `Tudo certo! 🎉 Seu perfil financeiro está configurado.
 
@@ -19,6 +23,17 @@ Agora você pode:
 • "quanto gastei hoje?" — consultar gastos
 • "qual meu saldo?" — ver saldo disponível
 • "paguei a fatura do Nubank de 850" — registrar pagamento de fatura`;
+
+function buildSignupWelcomeMessage(): string {
+  return (
+    `Olá! 👋 Bem-vindo ao Bento — seu assistente financeiro no WhatsApp.\n\n` +
+    `Veja o que você pode fazer:\n` +
+    `— Registre gastos e receitas por texto ou áudio\n` +
+    `— Consulte saldo, cartões e limites quando quiser\n` +
+    `— Acompanhe tudo no dashboard: ${env.frontendUrl}\n\n` +
+    `Vou fazer algumas perguntas rápidas para configurar seu perfil — leva menos de 1 minuto. 👇`
+  );
+}
 
 function extractAmount(text: string): number | null {
   return extractAmountFromText(text);
@@ -83,7 +98,7 @@ async function askCreditCardQuestion(phone: string): Promise<void> {
     });
   } catch (err) {
     console.error("Erro ao enviar botões SIM/NÃO, usando texto:", err);
-    await sendWhatsAppText({
+    await sendWhatsAppTextWithFallback({
       phone,
       text: "Ótimo! Você usa cartão de crédito? Responda *sim* ou *não*.",
     });
@@ -117,15 +132,29 @@ export async function startOnboarding(
   userId: number
 ): Promise<void> {
   await setPendingContext(userId, { awaiting_initial_balance: true });
-  await sendWhatsAppText({
+  await sendWhatsAppTextWithFallback({
     phone,
-    text: "Para começar, preciso de algumas informações rápidas sobre sua situação financeira. 💰 Quanto você tem disponível hoje na sua conta? (ex: 1500 ou 2350,50)",
+    text: "Quanto você tem disponível hoje na sua conta? 💰\n(ex: 1500 ou 2350,50)",
   });
+}
+
+export async function sendSignupWelcomeAndStartOnboarding(
+  phone: string,
+  userId: number
+): Promise<void> {
+  await sendWhatsAppTextWithFallback({
+    phone,
+    text: buildSignupWelcomeMessage(),
+  });
+  await startOnboarding(phone, userId);
 }
 
 async function finishOnboarding(userId: number, phone: string): Promise<void> {
   await setPendingContext(userId, null);
-  await sendWhatsAppText({ phone, text: CONCLUSION_MESSAGE });
+  const message =
+    `${CONCLUSION_MESSAGE}\n\n` +
+    `Dúvidas? Responda "ajuda" a qualquer momento ou escreva para ${env.supportEmail}.`;
+  await sendWhatsAppTextWithFallback({ phone, text: message });
 }
 
 export async function handleOnboardingStep(
@@ -141,7 +170,7 @@ export async function handleOnboardingStep(
   if (pending.awaiting_initial_balance) {
     const amount = extractAmount(text);
     if (amount === null) {
-      await sendWhatsAppText({
+      await sendWhatsAppTextWithFallback({
         phone,
         text: "Não entendi o valor. Informe quanto você tem disponível hoje (ex: 1500 ou 2350,50).",
       });
@@ -157,7 +186,7 @@ export async function handleOnboardingStep(
   if (pending.awaiting_credit_card) {
     if (isYes(text)) {
       await setPendingContext(userId, { awaiting_card_limit: true });
-      await sendWhatsAppText({
+      await sendWhatsAppTextWithFallback({
         phone,
         text: "Qual o nome e limite do cartão? (ex: Nubank 3000 ou Itaú 5000)",
       });
@@ -181,7 +210,7 @@ export async function handleOnboardingStep(
 
     const card = extractCardNameAndLimit(text);
     if (!card) {
-      await sendWhatsAppText({
+      await sendWhatsAppTextWithFallback({
         phone,
         text: "Informe o nome e limite do cartão (ex: Nubank 3000) ou diga *pronto* para finalizar.",
       });
@@ -190,7 +219,7 @@ export async function handleOnboardingStep(
 
     await upsertCreditCard(userId, card.name, card.limit);
     await setPendingContext(userId, { awaiting_more_cards: true });
-    await sendWhatsAppText({
+    await sendWhatsAppTextWithFallback({
       phone,
       text: "Tem outro cartão? Me informe o próximo (ex: Inter 2000) ou diga *pronto* para finalizar.",
     });

@@ -11,14 +11,14 @@ import { useCallback, useState } from "react";
 
 const STEPS = [
   {
-    title: "Envie uma mensagem",
-    description: "Mande um áudio ou texto no WhatsApp: \"gastei 30 reais com almoço\".",
-    icon: "💬",
+    title: "Cadastre-se grátis",
+    description: "Clique em Começar grátis, informe seu WhatsApp e confirme o código que enviamos.",
+    icon: "📱",
   },
   {
-    title: "Bento registra",
-    description: "A IA categoriza automaticamente e atualiza seu saldo em tempo real.",
-    icon: "🤖",
+    title: "Configure e registre",
+    description: "Responda as perguntas iniciais do Bento e mande gastos por mensagem ou áudio.",
+    icon: "💬",
   },
   {
     title: "Veja no dashboard",
@@ -38,7 +38,7 @@ const FAQ = [
   },
   {
     q: "Preciso instalar algum app?",
-    a: "Não. Use o WhatsApp que você já tem. O dashboard web é opcional para visualização.",
+    a: "Não. Cadastre-se no site com seu WhatsApp — o Bento envia o código e as instruções por lá. Depois, use mensagens ou áudio normalmente.",
   },
   {
     q: "Funciona com qualquer banco?",
@@ -110,8 +110,8 @@ export default function LandingPage() {
           <span className="text-bento-gold">pelo WhatsApp</span>
         </h1>
         <p className="mx-auto mt-6 max-w-2xl text-lg text-bento-offwhite/60">
-          Registre gastos e receitas por mensagem ou áudio. Veja tudo organizado no dashboard.
-          Simples como mandar um zap.
+          Cadastre-se grátis com seu WhatsApp, confirme o código e comece a registrar
+          gastos e receitas por mensagem ou áudio. Veja tudo no dashboard.
         </p>
         <div className="mt-10 flex flex-col items-center justify-center gap-4 sm:flex-row">
           <Link
@@ -210,7 +210,12 @@ export default function LandingPage() {
       </section>
 
       <footer className="border-t border-bento-gold/10 px-4 py-8 text-center text-sm text-bento-offwhite/40">
-        <p>© {new Date().getFullYear()} Bento Finanças</p>
+        <p>
+          © {new Date().getFullYear()} Bento Finanças ·{" "}
+          <Link href="/suporte" className="transition hover:text-bento-gold">
+            Suporte
+          </Link>
+        </p>
       </footer>
     </div>
   );

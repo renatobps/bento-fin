@@ -315,7 +315,7 @@ export async function processMessage(msg: IncomingMessage): Promise<void> {
   if (user.is_blocked) {
     await sendWhatsAppText({
       phone: msg.phone,
-      text: "Sua conta está temporariamente suspensa. Entre em contato pelo suporte.",
+      text: `Sua conta está temporariamente suspensa. Entre em contato: ${env.supportEmail}.`,
     });
     await logOnly(user.id, msg, false);
     return;

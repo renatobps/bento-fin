@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Sidebar } from "@/components/sidebar";
+import { PastDueBanner } from "@/components/past-due-banner";
 import { clearSession, getToken, getUser } from "@/lib/auth";
 import { fetchProfile, isAuthError } from "@/lib/api";
 
@@ -73,6 +74,8 @@ export function DashboardShell({ title, children }: DashboardShellProps) {
             Sair
           </button>
         </header>
+
+        <PastDueBanner />
 
         <main className="flex-1 px-4 py-6 lg:px-6">{children}</main>
       </div>
