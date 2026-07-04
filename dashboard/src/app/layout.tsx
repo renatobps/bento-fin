@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Cinzel, Montserrat } from "next/font/google";
 import "./globals.css";
+import { CrispProvider } from "@/components/crisp-chat";
 
 const montserrat = Montserrat({
   variable: "--font-montserrat",
@@ -38,6 +39,7 @@ export default function RootLayout({
         suppressHydrationWarning
       >
         {children}
+        <CrispProvider />
       </body>
     </html>
   );
