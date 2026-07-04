@@ -16,6 +16,52 @@ export interface ExpenseWithCategory extends Expense {
   category_name: string;
   category_icon: string | null;
   created_at: string | Date;
+  payment_method?: string;
+  card_name?: string | null;
+}
+
+const EXPENSE_SELECT = `SELECT e.id, e.user_id, e.amount, e.category_id, e.description,
+            e.expense_date, e.source, e.payment_method, e.card_name,
+            (e.created_at AT TIME ZONE 'America/Sao_Paulo') AS created_at,
+            c.name AS category_name, c.icon AS category_icon`;
+
+export async function getExpensesForMonth(
+  userId: number,
+  startDate: string,
+  endDate: string,
+  options?: { paymentMethod?: string; limit?: number; offset?: number }
+): Promise<ExpenseWithCategory[]> {
+  const params: unknown[] = [userId, startDate, endDate];
+  let paymentFilter = "";
+
+  if (options?.paymentMethod) {
+    params.push(options.paymentMethod);
+    paymentFilter = ` AND e.payment_method = $${params.length}`;
+  }
+
+  let pagination = "";
+  if (options?.limit !== undefined) {
+    params.push(options.limit);
+    pagination += ` LIMIT $${params.length}`;
+  }
+  if (options?.offset !== undefined) {
+    params.push(options.offset);
+    pagination += ` OFFSET $${params.length}`;
+  }
+
+  const result = await query<ExpenseWithCategory>(
+    `${EXPENSE_SELECT}
+     FROM expenses e
+     JOIN categories c ON c.id = e.category_id
+     WHERE e.user_id = $1
+       AND e.expense_date >= $2::date
+       AND e.expense_date <= $3::date
+       ${paymentFilter}
+     ORDER BY e.expense_date DESC, e.created_at DESC${pagination}`,
+    params
+  );
+
+  return result.rows;
 }
 
 export async function createExpense(params: {
@@ -103,10 +149,7 @@ export async function getExpensesForPeriod(
   const dateFilter = getPeriodDateFilter(period);
 
   const result = await query<ExpenseWithCategory>(
-    `SELECT e.id, e.user_id, e.amount, e.category_id, e.description,
-            e.expense_date, e.source,
-            (e.created_at AT TIME ZONE 'America/Sao_Paulo') AS created_at,
-            c.name AS category_name, c.icon AS category_icon
+    `${EXPENSE_SELECT}
      FROM expenses e
      JOIN categories c ON c.id = e.category_id
      WHERE e.user_id = $1 AND ${dateFilter}
@@ -153,6 +196,20 @@ export async function getLastExpense(userId: number): Promise<ExpenseWithCategor
   return result.rows[0] ?? null;
 }
 
+export async function getExpenseById(
+  expenseId: number,
+  userId: number
+): Promise<ExpenseWithCategory | null> {
+  const result = await query<ExpenseWithCategory>(
+    `${EXPENSE_SELECT}
+     FROM expenses e
+     JOIN categories c ON c.id = e.category_id
+     WHERE e.id = $1 AND e.user_id = $2`,
+    [expenseId, userId]
+  );
+  return result.rows[0] ?? null;
+}
+
 export async function deleteExpense(
   expenseId: number,
   userId: number
@@ -171,6 +228,9 @@ export async function updateExpense(
     amount?: number;
     categoryId?: number;
     description?: string | null;
+    expenseDate?: string;
+    paymentMethod?: string;
+    cardName?: string | null;
   }
 ): Promise<ExpenseWithCategory | null> {
   const sets: string[] = [];
@@ -189,9 +249,21 @@ export async function updateExpense(
     sets.push(`description = $${paramIndex++}`);
     params.push(updates.description);
   }
+  if (updates.expenseDate !== undefined) {
+    sets.push(`expense_date = $${paramIndex++}`);
+    params.push(updates.expenseDate);
+  }
+  if (updates.paymentMethod !== undefined) {
+    sets.push(`payment_method = $${paramIndex++}`);
+    params.push(updates.paymentMethod);
+  }
+  if (updates.cardName !== undefined) {
+    sets.push(`card_name = $${paramIndex++}`);
+    params.push(updates.cardName);
+  }
 
   if (sets.length === 0) {
-    return getLastExpense(userId);
+    return getExpenseById(expenseId, userId);
   }
 
   const result = await query<ExpenseWithCategory>(
@@ -200,7 +272,8 @@ export async function updateExpense(
      FROM categories c
      WHERE e.id = $1 AND e.user_id = $2 AND c.id = e.category_id
      RETURNING e.id, e.user_id, e.amount, e.category_id, e.description,
-               e.expense_date, e.source, c.name AS category_name, c.icon AS category_icon,
+               e.expense_date, e.source, e.payment_method, e.card_name,
+               c.name AS category_name, c.icon AS category_icon,
                (e.created_at AT TIME ZONE 'America/Sao_Paulo') AS created_at`,
     params
   );
