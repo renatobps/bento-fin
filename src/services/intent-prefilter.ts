@@ -3,6 +3,11 @@ import {
   hasFinancialContext,
   normalizeForMatching,
 } from "../utils/financial-keywords.js";
+import {
+  detectPaymentMethod,
+  extractAmountFromText,
+} from "../utils/amount-parser.js";
+import { extractCardNameFromText } from "../utils/card-name.js";
 
 const GREETING_PATTERN =
   /^(oi|ola|hey|salve|e ai|bom dia|boa tarde|boa noite|tudo bem|opa|hi|hello|fala)(\s+bento)?$/;
@@ -54,6 +59,78 @@ export function prefilterIntent(
 
   if (trimmed.includes("?") && !hasFinancialContext(trimmed)) {
     return emptyParsed("fora_contexto");
+  }
+
+  const amount = extractAmountFromText(trimmed);
+  const normalized = normalizeForMatching(trimmed);
+
+  if (amount !== null && /\b(gastei|paguei|comprei)\b/.test(normalized)) {
+    return {
+      ...emptyParsed("registrar_gasto", 0.95),
+      valor: amount,
+      payment_method: detectPaymentMethod(trimmed),
+      descricao: null,
+    };
+  }
+
+  if (amount !== null && /\b(ganhei|recebi)\b/.test(normalized)) {
+    return {
+      ...emptyParsed("registrar_receita", 0.95),
+      valor: amount,
+    };
+  }
+
+  const isCardLimitUpdate =
+    amount !== null &&
+    (/\b(atualiz|mud|alter|muda|troc|defin)\b.*\blimite\b/i.test(normalized) ||
+      /\blimite\b.*\b(cartao|credito)\b/i.test(normalized) ||
+      (/\blimite\b/i.test(normalized) && extractCardNameFromText(trimmed) !== null));
+
+  if (isCardLimitUpdate) {
+    return {
+      ...emptyParsed("atualizar_limite_cartao", 0.95),
+      valor: amount,
+      card_name: extractCardNameFromText(trimmed),
+    };
+  }
+
+  if (
+    /\b(qual|quanto|ver|mostra|exibe)\b.*\bsaldo\b/.test(normalized) ||
+    /\bsaldo\b.*\b(atual|disponivel|hoje)\b/.test(normalized) ||
+    normalized === "saldo"
+  ) {
+    return emptyParsed("consultar_saldo", 0.95);
+  }
+
+  if (
+    /\b(quanto|qual|ver)\b.*\b(devo|divida|debito)\b.*\b(credito|cartao)\b/.test(
+      normalized
+    ) ||
+    /\b(total|valor)\b.*\b(credito|fatura)\b/.test(normalized)
+  ) {
+    return emptyParsed("consultar_credito", 0.95);
+  }
+
+  if (/\b(quanto|o que)\b.*\bgastei\b.*\b(hoje|semana|mes|esse|essa)\b/.test(normalized)) {
+    let periodo: "hoje" | "semana" | "mes" = "hoje";
+    if (/\bsemana\b/.test(normalized)) periodo = "semana";
+    else if (/\b(mes|mês)\b/.test(normalized)) periodo = "mes";
+    return { ...emptyParsed("consultar_gastos", 0.95), periodo };
+  }
+
+  if (/\b(apaga|exclu|remove|deleta|desfaz)\b.*\b(ultimo|gasto|lancamento)\b/.test(normalized)) {
+    return emptyParsed("excluir_ultimo_gasto", 0.95);
+  }
+
+  if (
+    amount !== null &&
+    /\b(paguei|quitei|pago)\b.*\b(fatura|credito|cartao)\b/.test(normalized)
+  ) {
+    return {
+      ...emptyParsed("pagar_fatura", 0.95),
+      valor: amount,
+      card_name: extractCardNameFromText(trimmed),
+    };
   }
 
   return null;
