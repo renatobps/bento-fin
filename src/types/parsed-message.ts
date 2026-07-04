@@ -11,7 +11,8 @@ export type MessageIntent =
   | "corrigir_ultimo_gasto"
   | "cumprimento"
   | "fora_contexto"
-  | "clarificacao_resposta";
+  | "clarificacao_resposta"
+  | "solicitar_ajuda";
 
 export type IntentSource = "prefilter" | "llm" | "confidence_fallback";
 

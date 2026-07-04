@@ -6,6 +6,7 @@ import type { IntentSource, ParsedMessage } from "../types/parsed-message.js";
 import { extractExpensesFromParsed, extractIncomesFromParsed } from "../types/parsed-message.js";
 import { sendWhatsAppText } from "./evolution.js";
 import { findOrCreateUser } from "../repositories/users.js";
+import { updateUserLastSeen } from "../repositories/admin.js";
 import {
   getCategoryByName,
   normalizeCategory,
@@ -48,8 +49,107 @@ import {
   handleOnboardingStep,
   isOnboardingContext,
   needsOnboarding,
-  startOnboarding,
+  sendSignupWelcomeAndStartOnboarding,
 } from "./onboarding.js";
+import { env } from "../config/env.js";
+
+const HELP_MENU_TEXT = `Olá! Posso te ajudar com:
+
+1️⃣ Como registrar gastos e receitas
+2️⃣ Como consultar saldo e extrato
+3️⃣ Dúvidas sobre minha assinatura
+4️⃣ O bot não entendeu minha mensagem
+5️⃣ Falar com o suporte humano
+
+Responda com o número da opção.`;
+
+function normalizeHelpInput(text: string): string {
+  return text
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+}
+
+function matchHelpOption(text: string): 1 | 2 | 3 | 4 | 5 | null {
+  const n = normalizeHelpInput(text);
+  if (/^1$/.test(n) || /\b(registrar|gasto|receita)\b/.test(n)) return 1;
+  if (/^2$/.test(n) || /\b(saldo|extrato|consultar)\b/.test(n)) return 2;
+  if (/^3$/.test(n) || /\b(assinatura|plano|cobranca|pagar)\b/.test(n)) return 3;
+  if (/^4$/.test(n) || /\b(nao entendeu|erro|bug|problema)\b/.test(n)) return 4;
+  if (/^5$/.test(n) || /\b(humano|atendente|pessoa)\b/.test(n)) return 5;
+  return null;
+}
+
+function getHelpOptionResponse(option: 1 | 2 | 3 | 4 | 5): string {
+  const dashboardUrl = env.frontendUrl;
+  switch (option) {
+    case 1:
+      return `Para registrar um gasto, envie uma mensagem descrevendo o que gastou:
+
+Exemplos:
+• "gastei 45 reais no almoço"
+• "paguei 120 no Uber no crédito"
+• "recebi 1000 de salário"
+
+O Bento identifica valor, categoria e método automaticamente.
+
+Ficou alguma dúvida? Responda "ajuda" para ver o menu novamente.`;
+    case 2:
+      return `Para consultar seus gastos e saldo, basta perguntar:
+
+• "quanto gastei hoje?"
+• "quanto gastei essa semana?"
+• "quanto gastei esse mês?"
+• "qual meu saldo?"
+• "quanto devo no crédito?"
+
+Você também pode ver tudo detalhado no dashboard: ${dashboardUrl}`;
+    case 3:
+      return `Para dúvidas sobre assinatura:
+
+• Ver ou cancelar seu plano: ${dashboardUrl}/planos
+• Problema com cobrança: envie um e-mail para suporte@bento.com.br descrevendo o ocorrido
+
+Respondemos em até 24h.`;
+    case 4:
+      return `Se o Bento não entendeu sua mensagem, tente:
+
+• Ser mais específico com o valor: "gastei 30 reais" em vez de "gastei pouco"
+• Mencionar o método: "no crédito", "no pix", "em dinheiro"
+• Para receitas: começar com "recebi" ou "ganhei"
+
+Se o problema persistir, mande um e-mail para suporte@bento.com.br com o exemplo da mensagem que não funcionou.`;
+    case 5:
+      return `Entendido! Nossa equipe de suporte vai te ajudar.
+
+📧 E-mail: suporte@bento.com.br
+⏱ Respondemos em até 24 horas úteis.
+
+Para agilizar, descreva sua dúvida no e-mail com o maior detalhe possível.`;
+  }
+}
+
+async function handleHelpOption(
+  userId: number,
+  msg: IncomingMessage
+): Promise<boolean> {
+  const option = matchHelpOption(msg.text);
+  if (option === null) {
+    await respondAndLog(userId, msg, HELP_MENU_TEXT, true, {
+      detectedIntent: "solicitar_ajuda",
+      intentSource: "prefilter",
+    });
+    return true;
+  }
+
+  await setPendingContext(userId, null);
+  await respondAndLog(userId, msg, getHelpOptionResponse(option), true, {
+    detectedIntent: "solicitar_ajuda",
+    intentSource: "prefilter",
+  });
+  return true;
+}
 
 export interface IncomingMessage {
   phone: string;
@@ -210,6 +310,18 @@ async function respondAndLog(
 
 export async function processMessage(msg: IncomingMessage): Promise<void> {
   const user = await findOrCreateUser(msg.phone, msg.pushName);
+
+  if (user.is_blocked) {
+    await sendWhatsAppText({
+      phone: msg.phone,
+      text: "Sua conta está temporariamente suspensa. Entre em contato pelo suporte.",
+    });
+    await logOnly(user.id, msg, false);
+    return;
+  }
+
+  await updateUserLastSeen(user.id);
+
   let success = false;
   let responseText = "";
   const source = msg.source ?? "text";
@@ -234,8 +346,13 @@ export async function processMessage(msg: IncomingMessage): Promise<void> {
   }
 
   if (await needsOnboarding(user.id) && !pending) {
-    await startOnboarding(msg.phone, user.id);
+    await sendSignupWelcomeAndStartOnboarding(msg.phone, user.id);
     await logOnly(user.id, msg, true);
+    return;
+  }
+
+  if (pending?.awaiting_help_option === true) {
+    await handleHelpOption(user.id, msg);
     return;
   }
 
@@ -563,6 +680,10 @@ Pronto! Pode começar. 🎯`
     } else if (parsed.intent === "cumprimento") {
       responseText =
         "Olá! 👋 Sou o *Bento*, seu assistente financeiro.\n\nPosso registrar gastos e receitas, consultar saldo, crédito e limites. Ex: \"gastei 30 reais com almoço\" ou \"qual meu saldo?\".";
+      success = true;
+    } else if (parsed.intent === "solicitar_ajuda") {
+      await setPendingContext(user.id, { awaiting_help_option: true });
+      responseText = HELP_MENU_TEXT;
       success = true;
     } else if (parsed.intent === "fora_contexto") {
       responseText =

@@ -9,6 +9,7 @@ export interface PendingContext {
   awaiting_credit_card?: boolean;
   awaiting_card_limit?: boolean;
   awaiting_more_cards?: boolean;
+  awaiting_help_option?: boolean;
 }
 
 export async function getPendingContext(

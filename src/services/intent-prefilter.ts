@@ -52,6 +52,28 @@ export function prefilterIntent(
     return emptyParsed("fora_contexto");
   }
 
+  const normalized = normalizeForMatching(trimmed);
+  const normalizedExact = normalized.replace(/[!?.,"']/g, "").trim();
+
+  const HELP_PATTERN =
+    /\b(ajuda|socorro|suporte|help|nao entendo|nao sei|como funciona|como uso|como faco|nao consigo)\b/;
+  const HELP_EXACT = new Set([
+    "ajuda",
+    "help",
+    "suporte",
+    "oi",
+    "ola",
+    "menu",
+  ]);
+
+  if (
+    HELP_PATTERN.test(normalized) ||
+    HELP_EXACT.has(normalizedExact) ||
+    normalizedExact === "olá"
+  ) {
+    return emptyParsed("solicitar_ajuda", 0.95);
+  }
+
   if (isGreeting(trimmed)) {
     return emptyParsed("cumprimento");
   }
@@ -61,7 +83,6 @@ export function prefilterIntent(
   }
 
   const amount = extractAmountFromText(trimmed);
-  const normalized = normalizeForMatching(trimmed);
 
   // Gastos e receitas vão para o LLM — precisa extrair categoria e descrição
   // (ex: "gastei 5 com token" ou "comprei 123 em carne").
