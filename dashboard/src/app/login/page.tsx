@@ -1,14 +1,16 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { requestOtp, verifyOtp } from "@/lib/api";
 import { saveSession } from "@/lib/auth";
 import { formatLocalPhoneInput, formatPhoneDisplay, isValidLocalPhone } from "@/lib/phone";
 import { BrandLogo } from "@/components/brand-logo";
 
-export default function LoginPage() {
+function LoginContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const redirectTo = searchParams.get("redirect") ?? "/dashboard";
   const [phone, setPhone] = useState("");
   const [code, setCode] = useState("");
   const [step, setStep] = useState<"phone" | "code">("phone");
@@ -36,7 +38,7 @@ export default function LoginPage() {
     try {
       const { token, user } = await verifyOtp(phone, code);
       saveSession(token, user);
-      router.push("/dashboard");
+      router.push(redirectTo);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Código inválido");
     } finally {
@@ -141,5 +143,17 @@ export default function LoginPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={
+      <div className="flex min-h-full items-center justify-center text-bento-offwhite/40">
+        Carregando...
+      </div>
+    }>
+      <LoginContent />
+    </Suspense>
   );
 }

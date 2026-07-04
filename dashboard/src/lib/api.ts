@@ -177,6 +177,23 @@ export interface CreditCardsResponse {
   cards: CreditCardItem[];
 }
 
+export class ApiError extends Error {
+  status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.status = status;
+  }
+}
+
+export function isPlanRestrictedError(err: unknown): boolean {
+  return err instanceof ApiError && err.status === 403;
+}
+
+export function isAuthError(err: unknown): boolean {
+  return err instanceof ApiError && (err.status === 401 || err.status === 404);
+}
+
 async function apiFetch<T>(
   path: string,
   options: RequestInit = {},
@@ -195,7 +212,7 @@ async function apiFetch<T>(
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(body.error ?? `Erro ${res.status}`);
+    throw new ApiError(body.error ?? `Erro ${res.status}`, res.status);
   }
 
   return res.json();
@@ -434,4 +451,34 @@ export function formatExpenseDateTime(_expenseDate: string, createdAt?: string):
     hour: "2-digit",
     minute: "2-digit",
   }).format(new Date(createdAt));
+}
+
+export interface SubscriptionInfo {
+  plan: "free" | "essencial" | "pro";
+  status: "active" | "canceled" | "past_due" | "incomplete";
+  expiresAt: string | null;
+  usage: {
+    expensesThisMonth: number;
+    incomeThisMonth: number;
+    limits: { expenses: number | null; income: number | null };
+  };
+}
+
+export async function fetchSubscription(token: string): Promise<SubscriptionInfo> {
+  return apiFetch("/api/subscription", {}, token);
+}
+
+export async function createCheckout(
+  token: string,
+  plan: "essencial" | "pro",
+  interval: "monthly" | "yearly"
+): Promise<{ checkoutUrl: string }> {
+  return apiFetch("/api/stripe/create-checkout", {
+    method: "POST",
+    body: JSON.stringify({ plan, interval }),
+  }, token);
+}
+
+export async function openPortal(token: string): Promise<{ portalUrl: string }> {
+  return apiFetch("/api/stripe/portal", { method: "POST" }, token);
 }

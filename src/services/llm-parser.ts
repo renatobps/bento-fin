@@ -22,6 +22,7 @@ Analise a mensagem do usuário e retorne APENAS um JSON válido (sem markdown) c
   "expense_date": "YYYY-MM-DD" | null,
   "confianca": number,
   "gastos": [{"valor": number, "categoria": "alimentação" | "transporte" | "lazer" | "saúde" | "moradia" | "outros" | null, "descricao": string | null, "expense_date": "YYYY-MM-DD" | null}] | null,
+  "receitas": [{"valor": number, "income_category": "salário" | "freelance" | "venda" | "investimento" | "presente" | "outros" | null, "descricao": string | null, "expense_date": "YYYY-MM-DD" | null}] | null,
   "payment_method": "dinheiro" | "pix" | "debito" | "credito" | null,
   "card_name": string | null,
   "income_category": "salário" | "freelance" | "venda" | "investimento" | "presente" | "outros" | null
@@ -52,6 +53,8 @@ Regras de intent:
 - precisa_clarificacao: true se intent=registrar_gasto mas algum gasto ficou sem valor
 - gastos: use array quando a mensagem tiver VÁRIOS gastos (ex: "gastei 20 com X e 30 com Y"). Cada item separado. Nesse caso, deixe valor/categoria/descricao como null
 - gastos: null ou omita quando houver apenas um gasto — use valor/categoria/descricao normalmente
+- receitas: use array quando a mensagem tiver VÁRIAS receitas (ex: "recebi 500 de freelance e 200 de venda"). Cada item separado. Nesse caso, deixe valor/income_category/descricao como null
+- receitas: null ou omita quando houver apenas uma receita — use valor/income_category/descricao normalmente
 - expense_date: data do gasto. Use hoje se não especificado
 - payment_method: extraia de "no crédito", "no débito", "no pix", "em dinheiro", "no Nubank", "parcelei". Default null (será 'dinheiro' se registrar_gasto e vier null)
 - payment_method 'credito' quando mencionar cartão, crédito, parcelado, ou nome de banco como forma de pagamento
@@ -73,8 +76,9 @@ Exemplos:
 "gastei 100 conto no mercado" → {"intent":"registrar_gasto","valor":100,"categoria":"alimentação","descricao":"mercado","periodo":null,"precisa_clarificacao":false,"expense_date":null,"confianca":0.94,"gastos":null,"payment_method":"dinheiro","card_name":null,"income_category":null}
 "gastei 50 pal no uber" → {"intent":"registrar_gasto","valor":50,"categoria":"transporte","descricao":"uber","periodo":null,"precisa_clarificacao":false,"expense_date":null,"confianca":0.93,"gastos":null,"payment_method":"dinheiro","card_name":null,"income_category":null}
 "gastei 20 reais com material escolar e mais 30 reais com lanche" → {"intent":"registrar_gasto","valor":null,"categoria":null,"descricao":null,"periodo":null,"precisa_clarificacao":false,"expense_date":null,"confianca":0.94,"gastos":[{"valor":20,"categoria":"outros","descricao":"material escolar","expense_date":null},{"valor":30,"categoria":"alimentação","descricao":"lanche","expense_date":null}],"payment_method":null,"card_name":null,"income_category":null}
-"ganhei 1000 de salário" → {"intent":"registrar_receita","valor":1000,"categoria":null,"descricao":"salário","periodo":null,"precisa_clarificacao":false,"expense_date":null,"confianca":0.95,"payment_method":null,"card_name":null,"income_category":"salário"}
-"recebi 500 de freelance" → {"intent":"registrar_receita","valor":500,"categoria":null,"descricao":"freelance","periodo":null,"precisa_clarificacao":false,"expense_date":null,"confianca":0.94,"payment_method":null,"card_name":null,"income_category":"freelance"}
+"ganhei 1000 de salário" → {"intent":"registrar_receita","valor":1000,"categoria":null,"descricao":"salário","periodo":null,"precisa_clarificacao":false,"expense_date":null,"confianca":0.95,"gastos":null,"receitas":null,"payment_method":null,"card_name":null,"income_category":"salário"}
+"recebi 500 de freelance" → {"intent":"registrar_receita","valor":500,"categoria":null,"descricao":"freelance","periodo":null,"precisa_clarificacao":false,"expense_date":null,"confianca":0.94,"gastos":null,"receitas":null,"payment_method":null,"card_name":null,"income_category":"freelance"}
+"recebi 500 de freelance e mais 200 de uma venda" → {"intent":"registrar_receita","valor":null,"categoria":null,"descricao":null,"periodo":null,"precisa_clarificacao":false,"expense_date":null,"confianca":0.94,"gastos":null,"receitas":[{"valor":500,"income_category":"freelance","descricao":"freelance","expense_date":null},{"valor":200,"income_category":"venda","descricao":"venda","expense_date":null}],"payment_method":null,"card_name":null,"income_category":null}
 "paguei a fatura do Nubank de 850" → {"intent":"pagar_fatura","valor":850,"categoria":null,"descricao":null,"periodo":null,"precisa_clarificacao":false,"expense_date":null,"confianca":0.95,"payment_method":null,"card_name":"Nubank","income_category":null}
 "qual meu saldo?" → {"intent":"consultar_saldo","valor":null,"categoria":null,"descricao":null,"periodo":null,"precisa_clarificacao":false,"expense_date":null,"confianca":0.96,"payment_method":null,"card_name":null,"income_category":null}
 "quanto devo no crédito?" → {"intent":"consultar_credito","valor":null,"categoria":null,"descricao":null,"periodo":null,"precisa_clarificacao":false,"expense_date":null,"confianca":0.95,"payment_method":null,"card_name":null,"income_category":null}

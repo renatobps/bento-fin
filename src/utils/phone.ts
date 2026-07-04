@@ -18,7 +18,9 @@ export function normalizePhone(phone: string): string {
   const ddd = digits.slice(0, 2);
   let local = digits.slice(2);
 
-  if (local.length === 8 && !local.startsWith("9")) {
+  // Celular brasileiro: 8 dígitos (ex: 9859-5681) ou 9 dígitos (ex: 99859-5681).
+  // Números antigos de 8 dígitos podem começar com 9 — sempre prefixar mais um 9.
+  if (local.length === 8) {
     local = "9" + local;
   }
 

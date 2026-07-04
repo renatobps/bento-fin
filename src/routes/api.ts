@@ -31,9 +31,18 @@ import {
 } from "../repositories/income.js";
 import { getCreditCards, updateCreditCardLimitById, createCreditCard, updateCreditCardById, findCreditCardByName } from "../repositories/credit-cards.js";
 import { getCreditPaymentsForMonth } from "../repositories/credit-payments.js";
-import { parseMonthQuery } from "../repositories/month-query.js";
+import { parseMonthQuery, getCurrentMonthRange } from "../repositories/month-query.js";
 import { getUserById, updateUserProfile } from "../repositories/users.js";
 import { formatPhoneDisplay } from "../utils/phone.js";
+import { requirePlan } from "../middleware/plan.js";
+import {
+  getUserSubscription,
+  getLimitUsageCounts,
+  getUsageLimits,
+  consumeUsageLimit,
+} from "../repositories/subscription.js";
+import { env } from "../config/env.js";
+import { createCheckoutSession, createPortalSession } from "../routes/stripe.js";
 
 function parseMonthPagination(query: Request["query"]): {
   page: number;
@@ -310,6 +319,15 @@ apiRouter.post("/expenses", async (req: Request, res: Response) => {
       return;
     }
 
+    const usageCheck = await consumeUsageLimit(userId, "expense");
+    if (!usageCheck.ok) {
+      res.status(403).json({
+        error: `Limite de ${usageCheck.limit} gastos no plano gratuito atingido este mês`,
+        upgradeUrl: `${env.frontendUrl}/planos`,
+      });
+      return;
+    }
+
     const expense = await createExpense({
       userId,
       amount: parsedAmount,
@@ -504,7 +522,7 @@ function mapCreditCardResponse(c: {
   };
 }
 
-apiRouter.get("/limits", async (req: Request, res: Response) => {
+apiRouter.get("/limits", requirePlan("essencial"), async (req: Request, res: Response) => {
   try {
     const userId = req.auth!.userId;
     const limits = await getSpendingLimits(userId);
@@ -535,7 +553,7 @@ apiRouter.get("/limits", async (req: Request, res: Response) => {
   }
 });
 
-apiRouter.put("/limits", async (req: Request, res: Response) => {
+apiRouter.put("/limits", requirePlan("essencial"), async (req: Request, res: Response) => {
   try {
     const userId = req.auth!.userId;
     const { dailyLimit, weeklyLimit, monthlyLimit } = req.body ?? {};
@@ -652,6 +670,15 @@ apiRouter.post("/income", async (req: Request, res: Response) => {
     const category = await getIncomeCategoryById(parsedCategoryId);
     if (!category) {
       res.status(400).json({ error: "Categoria não encontrada" });
+      return;
+    }
+
+    const usageCheck = await consumeUsageLimit(userId, "income");
+    if (!usageCheck.ok) {
+      res.status(403).json({
+        error: `Limite de ${usageCheck.limit} receitas no plano gratuito atingido este mês`,
+        upgradeUrl: `${env.frontendUrl}/planos`,
+      });
       return;
     }
 
@@ -866,7 +893,7 @@ apiRouter.get("/ledger", async (req: Request, res: Response) => {
   }
 });
 
-apiRouter.get("/credit/cards", async (req: Request, res: Response) => {
+apiRouter.get("/credit/cards", requirePlan("essencial"), async (req: Request, res: Response) => {
   try {
     const userId = req.auth!.userId;
     const cards = await getCreditCards(userId);
@@ -880,7 +907,7 @@ apiRouter.get("/credit/cards", async (req: Request, res: Response) => {
   }
 });
 
-apiRouter.post("/credit/cards", async (req: Request, res: Response) => {
+apiRouter.post("/credit/cards", requirePlan("essencial"), async (req: Request, res: Response) => {
   try {
     const userId = req.auth!.userId;
     const { name, creditLimit, billingDueDay } = req.body ?? {};
@@ -895,6 +922,18 @@ apiRouter.post("/credit/cards", async (req: Request, res: Response) => {
     if (existing) {
       res.status(409).json({ error: "Já existe um cartão com esse nome" });
       return;
+    }
+
+    const userSub = await getUserSubscription(userId);
+    if (userSub?.subscription_plan === "essencial") {
+      const currentCards = await getCreditCards(userId);
+      if (currentCards.length >= 2) {
+        res.status(403).json({
+          error: "Plano Essencial permite até 2 cartões. Faça upgrade para Pro.",
+          upgradeUrl: `${process.env.FRONTEND_URL ?? "http://localhost:3001"}/planos`,
+        });
+        return;
+      }
     }
 
     const limit = parseOptionalLimit(creditLimit);
@@ -969,5 +1008,115 @@ apiRouter.put("/credit/cards/:id", async (req: Request, res: Response) => {
   } catch (err) {
     console.error("Erro ao atualizar cartão:", err);
     res.status(500).json({ error: "Falha ao atualizar cartão" });
+  }
+});
+
+apiRouter.get("/subscription", async (req: Request, res: Response) => {
+  try {
+    const user = await getUserSubscription(req.auth!.userId);
+    if (!user) {
+      res.status(404).json({ error: "Usuário não encontrado" });
+      return;
+    }
+
+    const usage = await getLimitUsageCounts(user.id);
+    const limits = getUsageLimits(user.subscription_plan);
+
+    res.json({
+      plan: user.subscription_plan,
+      status: user.subscription_status,
+      expiresAt: user.subscription_expires_at
+        ? toISOString(user.subscription_expires_at)
+        : null,
+      usage: {
+        expensesThisMonth: usage.expenses,
+        incomeThisMonth: usage.income,
+        limits: {
+          expenses: limits.expenses,
+          income: limits.income,
+        },
+      },
+    });
+  } catch (err) {
+    console.error("Erro ao buscar assinatura:", err);
+    res.status(500).json({ error: "Falha ao buscar assinatura" });
+  }
+});
+
+apiRouter.post("/stripe/create-checkout", async (req: Request, res: Response) => {
+  try {
+    const { plan, interval } = req.body ?? {};
+    if (plan !== "essencial" && plan !== "pro") {
+      res.status(400).json({ error: "Plano inválido" });
+      return;
+    }
+    if (interval !== "monthly" && interval !== "yearly") {
+      res.status(400).json({ error: "Intervalo inválido" });
+      return;
+    }
+
+    const checkoutUrl = await createCheckoutSession(req.auth!.userId, plan, interval);
+    res.json({ checkoutUrl });
+  } catch (err) {
+    console.error("Erro ao criar checkout:", err);
+    const message = err instanceof Error ? err.message : "Falha ao criar checkout";
+    res.status(500).json({ error: message });
+  }
+});
+
+apiRouter.post("/stripe/portal", async (req: Request, res: Response) => {
+  try {
+    const portalUrl = await createPortalSession(req.auth!.userId);
+    res.json({ portalUrl });
+  } catch (err) {
+    console.error("Erro ao abrir portal:", err);
+    const message = err instanceof Error ? err.message : "Falha ao abrir portal";
+    res.status(500).json({ error: message });
+  }
+});
+
+apiRouter.post("/expenses/export", requirePlan("pro"), async (req: Request, res: Response) => {
+  try {
+    const userId = req.auth!.userId;
+    const month = parseMonthQuery(req.query.year, req.query.month) ?? getCurrentMonthRange();
+    const expenses = await getExpensesForMonth(userId, month.startDate, month.endDate);
+
+    const header = "data,valor,categoria,descricao,forma_pagamento\n";
+    const rows = expenses
+      .map((e) => {
+        const desc = (e.description ?? "").replace(/"/g, '""');
+        return `${e.expense_date},${e.amount},"${e.category_name}","${desc}",${e.payment_method ?? "dinheiro"}`;
+      })
+      .join("\n");
+
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", `attachment; filename="gastos-${month.year}-${month.month}.csv"`);
+    res.send("\uFEFF" + header + rows);
+  } catch (err) {
+    console.error("Erro ao exportar gastos:", err);
+    res.status(500).json({ error: "Falha ao exportar gastos" });
+  }
+});
+
+apiRouter.post("/income/export", requirePlan("pro"), async (req: Request, res: Response) => {
+  try {
+    const userId = req.auth!.userId;
+    const month = parseMonthQuery(req.query.year, req.query.month) ?? getCurrentMonthRange();
+    const income = await getIncomeForMonth(userId, month.startDate, month.endDate);
+
+    const header = "data,valor,categoria,descricao\n";
+    const rows = income
+      .map((i) => {
+        const desc = (i.description ?? "").replace(/"/g, '""');
+        return `${i.income_date},${i.amount},"${i.category_name}","${desc}"`;
+      })
+      .join("\n");
+
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", `attachment; filename="receitas-${month.year}-${month.month}.csv"`);
+    res.send("\uFEFF" + header + rows);
+  } catch (err) {
+    console.error("Erro ao exportar receitas:", err);
+    res.status(500).json({ error: "Falha ao exportar receitas" });
   }
 });

@@ -1,10 +1,13 @@
 "use client";
 
 import { Suspense, useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { AddTransactionMenu } from "@/components/add-transaction-menu";
 import { FinanceOverviewCards } from "@/components/finance-overview-cards";
 import { DashboardShell } from "@/components/dashboard-shell";
+import { PlanBanner } from "@/components/plan-banner";
+import { UpgradeToast } from "@/components/upgrade-toast";
 import {
   DashboardReports,
   type CreditCardUsage,
@@ -16,8 +19,13 @@ import {
   fetchCreditCards,
   fetchExpensesByMonth,
   fetchIncomeByMonth,
+  fetchProfile,
+  fetchSubscription,
   formatCurrency,
+  isAuthError,
+  type SubscriptionInfo,
 } from "@/lib/api";
+import { clearSession } from "@/lib/auth";
 import { groupByCategory } from "@/lib/aggregations";
 import { parseMonthFromSearchParams } from "@/lib/month";
 import { getToken } from "@/lib/auth";
@@ -38,6 +46,8 @@ function DashboardContent() {
     [] as ReturnType<typeof groupByCategory>
   );
   const [creditCards, setCreditCards] = useState<CreditCardUsage[]>([]);
+  const [subscription, setSubscription] = useState<SubscriptionInfo | null>(null);
+  const [phoneDisplay, setPhoneDisplay] = useState("");
 
   const loadData = useCallback(async () => {
     const token = getToken();
@@ -50,30 +60,47 @@ function DashboardContent() {
     setError("");
 
     try {
-      const [balanceData, incomeData, expensesData, cardsData] = await Promise.all([
+      const profile = await fetchProfile(token);
+      setPhoneDisplay(profile.phoneDisplay || profile.phone);
+
+      const sub = await fetchSubscription(token);
+      setSubscription(sub);
+      const isFree = sub.plan === "free";
+
+      const [balanceResult, expensesResult] = await Promise.all([
         fetchBalance(token),
-        fetchIncomeByMonth(token, month.year, month.month),
         fetchExpensesByMonth(token, month.year, month.month),
-        fetchCreditCards(token),
       ]);
 
-      const debtByCard = new Map(
-        balanceData.creditByCard.map((c) => [c.cardName.toLowerCase(), c.total])
-      );
+      setBalance(balanceResult);
+      setExpensesTotal(expensesResult.total);
+      setExpenseCategories(groupByCategory(expensesResult.expenses));
 
-      setBalance(balanceData);
+      const incomeData = await fetchIncomeByMonth(token, month.year, month.month);
       setIncomeTotal(incomeData.total);
-      setExpensesTotal(expensesData.total);
-      setExpenseCategories(groupByCategory(expensesData.expenses));
       setIncomeCategories(groupByCategory(incomeData.income));
-      setCreditCards(
-        cardsData.cards.map((card) => ({
-          name: card.name,
-          limit: card.creditLimit,
-          used: debtByCard.get(card.name.toLowerCase()) ?? 0,
-        }))
-      );
+
+      if (!isFree) {
+        const cardsData = await fetchCreditCards(token);
+        const debtByCard = new Map(
+          balanceResult.creditByCard.map((c) => [c.cardName.toLowerCase(), c.total])
+        );
+        setCreditCards(
+          cardsData.cards.map((card) => ({
+            name: card.name,
+            limit: card.creditLimit,
+            used: debtByCard.get(card.name.toLowerCase()) ?? 0,
+          }))
+        );
+      } else {
+        setCreditCards([]);
+      }
     } catch (err) {
+      if (isAuthError(err)) {
+        clearSession();
+        router.replace("/login");
+        return;
+      }
       setError(err instanceof Error ? err.message : "Erro ao carregar dados");
     } finally {
       setLoading(false);
@@ -84,11 +111,28 @@ function DashboardContent() {
     loadData();
   }, [loadData]);
 
-  const { openCreate, modal } = useTransactionModal(loadData);
+  useEffect(() => {
+    function onFocus() {
+      loadData();
+    }
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [loadData]);
+
+  const { openCreate, modal } = useTransactionModal(loadData, { subscription });
+  const isFree = subscription?.plan === "free";
 
   return (
     <DashboardShell title="Dashboard">
+      <UpgradeToast />
+      <PlanBanner subscription={subscription} />
       <MonthNavigator basePath="/dashboard" />
+
+      {phoneDisplay && (
+        <p className="mb-4 text-center text-xs text-bento-offwhite/40">
+          Conta: {phoneDisplay} — use o mesmo número do WhatsApp
+        </p>
+      )}
 
       {error && (
         <div className="mb-4 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
@@ -104,6 +148,7 @@ function DashboardContent() {
             balance={balance}
             incomeTotal={incomeTotal}
             expensesTotal={expensesTotal}
+            isFreePlan={isFree}
           />
           {balance && (
             <p className="mt-4 text-center text-sm text-bento-offwhite/40">
@@ -114,12 +159,28 @@ function DashboardContent() {
             </p>
           )}
 
+          {expensesTotal === 0 && (subscription?.usage.expensesThisMonth ?? 0) === 0 && (
+            <p className="mt-4 text-center text-sm text-bento-offwhite/50">
+              Nenhum gasto neste mês. Registre pelo WhatsApp:{" "}
+              <span className="text-bento-gold">gastei 30 no almoço</span>
+            </p>
+          )}
+
+          {isFree && expensesTotal > 0 && (
+            <p className="mt-4 text-center text-sm">
+              <Link href="/dashboard/transacoes?tipo=saida" className="text-bento-gold hover:underline">
+                Ver todas as despesas →
+              </Link>
+            </p>
+          )}
+
           <DashboardReports
             incomeTotal={incomeTotal}
             expensesTotal={expensesTotal}
             expenseCategories={expenseCategories}
             incomeCategories={incomeCategories}
             creditCards={creditCards}
+            hideIncome={false}
           />
         </>
       )}

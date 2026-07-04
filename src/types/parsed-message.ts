@@ -24,6 +24,13 @@ export interface ParsedExpenseItem {
   expense_date?: string | null;
 }
 
+export interface ParsedIncomeItem {
+  valor: number;
+  income_category: string | null;
+  descricao: string | null;
+  expense_date?: string | null;
+}
+
 export interface ParsedMessage {
   intent: MessageIntent;
   valor: number | null;
@@ -35,6 +42,8 @@ export interface ParsedMessage {
   confianca?: number;
   /** Múltiplos gastos na mesma mensagem. Quando preenchido, ignore valor/categoria/descricao. */
   gastos?: ParsedExpenseItem[] | null;
+  /** Múltiplas receitas na mesma mensagem. Quando preenchido, ignore valor/income_category/descricao. */
+  receitas?: ParsedIncomeItem[] | null;
   payment_method: "dinheiro" | "pix" | "debito" | "credito" | null;
   card_name: string | null;
   income_category: string | null;
@@ -52,6 +61,27 @@ export function extractExpensesFromParsed(parsed: ParsedMessage): ParsedExpenseI
       {
         valor: parsed.valor,
         categoria: parsed.categoria,
+        descricao: parsed.descricao,
+        expense_date: parsed.expense_date,
+      },
+    ];
+  }
+
+  return [];
+}
+
+export function extractIncomesFromParsed(parsed: ParsedMessage): ParsedIncomeItem[] {
+  if (parsed.receitas && parsed.receitas.length > 0) {
+    return parsed.receitas.filter(
+      (item) => typeof item.valor === "number" && item.valor > 0
+    );
+  }
+
+  if (parsed.valor !== null && parsed.valor > 0) {
+    return [
+      {
+        valor: parsed.valor,
+        income_category: parsed.income_category,
         descricao: parsed.descricao,
         expense_date: parsed.expense_date,
       },

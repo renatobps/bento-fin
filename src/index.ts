@@ -5,6 +5,7 @@ import { pool } from "./db/pool.js";
 import { webhookRouter } from "./routes/webhook.js";
 import { authRouter } from "./routes/auth.js";
 import { apiRouter } from "./routes/api.js";
+import { stripeWebhookRouter } from "./routes/stripe.js";
 import { sendBillingReminders } from "./services/billing-reminder.js";
 
 const app = express();
@@ -37,6 +38,11 @@ app.use(
 
 app.use(express.urlencoded({ extended: false, limit: "512kb" }));
 app.use("/webhook", express.json({ limit: "5mb" }));
+app.use(
+  "/api/stripe/webhook",
+  express.raw({ type: "application/json" }),
+  stripeWebhookRouter
+);
 app.use(express.json({ limit: "512kb" }));
 
 app.use(

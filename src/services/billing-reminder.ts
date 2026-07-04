@@ -42,6 +42,11 @@ export async function getUsersWithUpcomingBilling(
            + $1::int * INTERVAL '1 day'
          )
        )::int
+       AND u.subscription_plan IN ('essencial', 'pro')
+       AND (
+         u.subscription_status = 'active'
+         OR (u.subscription_status = 'canceled' AND u.subscription_expires_at > NOW())
+       )
      GROUP BY u.id, u.phone, u.name, cc.name, cc.billing_due_day
      HAVING COALESCE(SUM(e.amount), 0) > 0`,
     [daysAhead]

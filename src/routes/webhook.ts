@@ -1,55 +1,22 @@
 import { Router, Request, Response } from "express";
 import { env } from "../config/env.js";
-import type {
-  EvolutionMessageData,
-  EvolutionWebhookPayload,
-} from "../types/evolution.js";
+import type { EvolutionWebhookPayload } from "../types/evolution.js";
 import { extractPhoneFromJid } from "../utils/format.js";
-import { normalizeButtonReply } from "../utils/yes-no-response.js";
 import { enqueueForUser } from "../services/user-queue.js";
 import { shouldProcessMessage } from "../services/message-dedup.js";
 import { processMessage } from "../services/message-processor.js";
 import { transcribeAudioMessage } from "../services/audio-transcriber.js";
 import { sendWhatsAppText } from "../services/evolution.js";
+import { findOrCreateUser } from "../repositories/users.js";
+import { checkAudioAccess } from "../services/plan-checker.js";
+import {
+  extractText,
+  isAudioMessage,
+  isButtonResponse,
+  isProcessableMessage,
+} from "../utils/message-extract.js";
 
-function extractText(data: EvolutionMessageData): string | null {
-  const buttonReply = data.message?.buttonsResponseMessage;
-  if (buttonReply) {
-    const normalized = normalizeButtonReply(
-      buttonReply.selectedButtonId,
-      buttonReply.selectedDisplayText
-    );
-    if (normalized) return normalized;
-  }
-
-  if (data.message?.conversation) {
-    return data.message.conversation;
-  }
-  if (data.message?.extendedTextMessage?.text) {
-    return data.message.extendedTextMessage.text;
-  }
-  return null;
-}
-
-function isButtonResponse(data: EvolutionMessageData): boolean {
-  return (
-    data.messageType === "buttonsResponseMessage" ||
-    !!data.message?.buttonsResponseMessage
-  );
-}
-
-function isAudioMessage(data: EvolutionMessageData): boolean {
-  return (
-    data.messageType === "audioMessage" || !!data.message?.audioMessage
-  );
-}
-
-function isProcessableMessage(data: EvolutionMessageData): boolean {
-  if (data.key.fromMe) return false;
-  return !!extractText(data) || isAudioMessage(data) || isButtonResponse(data);
-}
-
-async function processAudioMessage(data: EvolutionMessageData): Promise<void> {
+async function processAudioMessage(data: import("../types/evolution.js").EvolutionMessageData): Promise<void> {
   const phone = extractPhoneFromJid(data.key.remoteJid);
 
   try {
@@ -120,7 +87,7 @@ webhookRouter.post("/", async (req: Request, res: Response) => {
     return;
   }
 
-  const messages: EvolutionMessageData[] = Array.isArray(payload.data)
+  const messages = Array.isArray(payload.data)
     ? payload.data
     : [payload.data];
 
@@ -135,13 +102,29 @@ webhookRouter.post("/", async (req: Request, res: Response) => {
     }
 
     if (isAudioMessage(data)) {
-      enqueueForUser(phone, () => processAudioMessage(data)).catch((err) => {
+      enqueueForUser(phone, async () => {
+        const user = await findOrCreateUser(phone, data.pushName);
+        if (!(await checkAudioAccess(user.id, phone))) return;
+        await processAudioMessage(data);
+      }).catch((err) => {
         console.error(`Falha no processamento de áudio (${phone}):`, err);
       });
       continue;
     }
 
-    const text = extractText(data)!;
+    const text = extractText(data);
+    if (!text) {
+      if (isButtonResponse(data)) {
+        console.warn(
+          `Clique em botão não interpretado (${phone}, type=${data.messageType})`
+        );
+        await sendWhatsAppText({
+          phone,
+          text: "Não consegui ler sua resposta. Responda *sim* ou *não* por texto.",
+        });
+      }
+      continue;
+    }
 
     enqueueForUser(phone, () =>
       processMessage({

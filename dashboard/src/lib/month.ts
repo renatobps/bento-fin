@@ -18,9 +18,19 @@ export interface MonthRef {
   month: number;
 }
 
+const TZ = "America/Sao_Paulo";
+
 export function getCurrentMonth(): MonthRef {
-  const now = new Date();
-  return { year: now.getFullYear(), month: now.getMonth() + 1 };
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: TZ,
+    year: "numeric",
+    month: "2-digit",
+  }).formatToParts(new Date());
+
+  return {
+    year: parseInt(parts.find((p) => p.type === "year")?.value ?? "0", 10),
+    month: parseInt(parts.find((p) => p.type === "month")?.value ?? "1", 10),
+  };
 }
 
 export function formatMonthLabel({ year, month }: MonthRef): string {

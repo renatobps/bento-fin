@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Sidebar } from "@/components/sidebar";
 import { clearSession, getToken, getUser } from "@/lib/auth";
+import { fetchProfile, isAuthError } from "@/lib/api";
 
 interface DashboardShellProps {
   title: string;
@@ -16,11 +17,22 @@ export function DashboardShell({ title, children }: DashboardShellProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
 
   useEffect(() => {
-    if (!getToken()) {
+    const token = getToken();
+    if (!token) {
       router.replace("/login");
       return;
     }
-    setUserPhone(getUser()?.phone ?? "");
+
+    fetchProfile(token)
+      .then((profile) => setUserPhone(profile.phoneDisplay || profile.phone))
+      .catch((err) => {
+        if (isAuthError(err)) {
+          clearSession();
+          router.replace("/login");
+          return;
+        }
+        setUserPhone(getUser()?.phone ?? "");
+      });
   }, [router]);
 
   function handleLogout() {

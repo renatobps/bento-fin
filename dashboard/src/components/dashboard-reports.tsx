@@ -236,6 +236,7 @@ interface DashboardReportsProps {
   expenseCategories: CategoryTotal[];
   incomeCategories: CategoryTotal[];
   creditCards: CreditCardUsage[];
+  hideIncome?: boolean;
 }
 
 export function DashboardReports({
@@ -244,6 +245,7 @@ export function DashboardReports({
   expenseCategories,
   incomeCategories,
   creditCards,
+  hideIncome = false,
 }: DashboardReportsProps) {
   return (
     <div className="mt-8 grid grid-cols-1 gap-4 lg:grid-cols-2">
@@ -255,13 +257,17 @@ export function DashboardReports({
         <ExpensesByCategoryChart categories={expenseCategories} />
       </ReportCard>
 
-      <ReportCard title="Receitas por categoria">
-        <IncomeByCategoryChart categories={incomeCategories} />
-      </ReportCard>
+      {!hideIncome && (
+        <>
+          <ReportCard title="Receitas por categoria">
+            <IncomeByCategoryChart categories={incomeCategories} />
+          </ReportCard>
 
-      <ReportCard title="Cartão de crédito (Limite atual × Limite usado)">
-        <CreditLimitChart cards={creditCards} />
-      </ReportCard>
+          <ReportCard title="Cartão de crédito (Limite atual × Limite usado)">
+            <CreditLimitChart cards={creditCards} />
+          </ReportCard>
+        </>
+      )}
     </div>
   );
 }

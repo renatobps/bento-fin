@@ -12,7 +12,9 @@ function normalize(text: string): string {
 }
 
 /** Interpreta resposta SIM/NÃO (texto ou clique em botão). */
-export function parseYesNoResponse(text: string): "yes" | "no" | null {
+export function parseYesNoResponse(text: string | null | undefined): "yes" | "no" | null {
+  if (!text?.trim()) return null;
+
   const trimmed = text.trim();
   const n = normalize(trimmed);
 
@@ -38,11 +40,11 @@ export function parseYesNoResponse(text: string): "yes" | "no" | null {
   return null;
 }
 
-export function isYesResponse(text: string): boolean {
+export function isYesResponse(text: string | null | undefined): boolean {
   return parseYesNoResponse(text) === "yes";
 }
 
-export function isNoResponse(text: string): boolean {
+export function isNoResponse(text: string | null | undefined): boolean {
   return parseYesNoResponse(text) === "no";
 }
 
@@ -57,6 +59,14 @@ export function normalizeButtonReply(
 
   if (buttonId === BENTO_YES_BUTTON_ID) return "sim";
   if (buttonId === BENTO_NO_BUTTON_ID) return "não";
+
+  // IDs genéricos que algumas versões da Evolution enviam
+  if (buttonId?.toLowerCase() === "yes" || buttonId?.toLowerCase() === "sim") {
+    return "sim";
+  }
+  if (buttonId?.toLowerCase() === "no" || buttonId?.toLowerCase() === "nao") {
+    return "não";
+  }
 
   return buttonId ?? null;
 }

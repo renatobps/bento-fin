@@ -1,6 +1,7 @@
 "use client";
 
 import { Suspense, useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { AddTransactionMenu } from "@/components/add-transaction-menu";
 import { DashboardShell } from "@/components/dashboard-shell";
@@ -14,9 +15,13 @@ import { useTransactionModal } from "@/hooks/use-transaction-modal";
 import {
   fetchExpensesByMonth,
   fetchIncomeByMonth,
+  fetchSubscription,
   formatCurrency,
+  isAuthError,
+  isPlanRestrictedError,
+  type SubscriptionInfo,
 } from "@/lib/api";
-import { getToken } from "@/lib/auth";
+import { clearSession, getToken } from "@/lib/auth";
 import { monthQueryString, parseMonthFromSearchParams } from "@/lib/month";
 import type { TransactionKind } from "@/lib/transactions";
 
@@ -30,7 +35,7 @@ function formatAccount(paymentMethod?: string, cardName?: string | null) {
 }
 
 function parseTransactionType(value: string | null): TransactionType {
-  return value === "saida" ? "saida" : "entrada";
+  return value === "entrada" ? "entrada" : "saida";
 }
 
 function TransactionTabs({
@@ -79,6 +84,8 @@ function TransacoesContent() {
   const [error, setError] = useState("");
   const [rows, setRows] = useState<ReturnType<typeof mapIncomeToRow>[]>([]);
   const [total, setTotal] = useState(0);
+  const [subscription, setSubscription] = useState<SubscriptionInfo | null>(null);
+  const [showIncomeUpgradePrompt, setShowIncomeUpgradePrompt] = useState(false);
 
   const loadData = useCallback(async () => {
     const token = getToken();
@@ -89,8 +96,12 @@ function TransacoesContent() {
 
     setLoading(true);
     setError("");
+    setShowIncomeUpgradePrompt(false);
 
     try {
+      const sub = await fetchSubscription(token);
+      setSubscription(sub);
+
       if (tipo === "entrada") {
         const data = await fetchIncomeByMonth(token, month.year, month.month);
         setTotal(data.total);
@@ -101,6 +112,15 @@ function TransacoesContent() {
         setRows(data.expenses.map((item) => mapExpenseToRow(item, formatAccount)));
       }
     } catch (err) {
+      if (isAuthError(err)) {
+        clearSession();
+        router.replace("/login");
+        return;
+      }
+      if (isPlanRestrictedError(err)) {
+        setError("Recurso disponível a partir do plano Essencial.");
+        return;
+      }
       setError(err instanceof Error ? err.message : "Erro ao carregar transações");
     } finally {
       setLoading(false);
@@ -111,12 +131,29 @@ function TransacoesContent() {
     loadData();
   }, [loadData]);
 
-  const { openCreate, openEdit, handleDelete, modal } = useTransactionModal(loadData);
+  const { openCreate, openEdit, handleDelete, modal } = useTransactionModal(loadData, {
+    subscription,
+    onIncomeLimitReached: () => setShowIncomeUpgradePrompt(true),
+  });
 
   const isEntrada = tipo === "entrada";
   const addKinds: TransactionKind[] = isEntrada
     ? ["income"]
     : ["expense", "credit_expense"];
+
+  const incomeLimit = subscription?.usage.limits.income ?? 10;
+  const incomeUsed = subscription?.usage.incomeThisMonth ?? 0;
+  const incomeRemaining = Math.max(0, incomeLimit - incomeUsed);
+  const incomeLimitReached =
+    subscription?.plan === "free" && incomeRemaining === 0;
+
+  const handleAddIncome = (kind: TransactionKind) => {
+    if (isEntrada && incomeLimitReached) {
+      setShowIncomeUpgradePrompt(true);
+      return;
+    }
+    openCreate(kind);
+  };
 
   return (
     <DashboardShell title="Transações">
@@ -130,7 +167,7 @@ function TransacoesContent() {
         <AddTransactionMenu
           variant="inline"
           allowedKinds={addKinds}
-          onSelect={openCreate}
+          onSelect={isEntrada ? handleAddIncome : openCreate}
         />
       </div>
 
@@ -139,6 +176,28 @@ function TransacoesContent() {
       {error && (
         <div className="mb-4 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
           {error}
+        </div>
+      )}
+
+      {isEntrada && subscription?.plan === "free" && !showIncomeUpgradePrompt && (
+        <div className="mb-4 rounded-xl border border-bento-gold/20 bg-bento-gold/5 px-4 py-3 text-sm text-bento-offwhite/80">
+          Plano gratuito —{" "}
+          <span className="font-medium text-bento-gold">
+            {incomeRemaining}{" "}
+            {incomeRemaining === 1 ? "receita restante" : "receitas restantes"}
+          </span>{" "}
+          de {incomeLimit} este mês.
+        </div>
+      )}
+
+      {showIncomeUpgradePrompt && (
+        <div className="mb-4 rounded-xl border border-bento-gold/30 bg-bento-gold/10 px-4 py-3 text-sm text-bento-offwhite">
+          {incomeLimitReached
+            ? `Você atingiu o limite de ${incomeLimit} receitas no plano gratuito este mês.`
+            : "Para registrar receitas ilimitadas, assine o plano Essencial por R$14,90/mês."}{" "}
+          <Link href="/planos" className="font-semibold text-bento-gold hover:underline">
+            Ver planos
+          </Link>
         </div>
       )}
 

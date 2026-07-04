@@ -10,6 +10,7 @@ interface SummaryStatCardProps {
   icon: ReactNode;
   iconBg: string;
   href: string;
+  locked?: boolean;
 }
 
 function SummaryStatCard({
@@ -18,12 +19,13 @@ function SummaryStatCard({
   icon,
   iconBg,
   href,
+  locked = false,
 }: SummaryStatCardProps) {
-  return (
-    <Link
-      href={href}
-      className="flex w-full items-center gap-3 rounded-2xl border border-bento-gold/10 bg-bento-navy-muted p-4 text-left transition hover:border-bento-gold/25 hover:bg-bento-navy-muted/80"
-    >
+  const className =
+    "flex w-full items-center gap-3 rounded-2xl border border-bento-gold/10 bg-bento-navy-muted p-4 text-left transition hover:border-bento-gold/25 hover:bg-bento-navy-muted/80";
+
+  const content = (
+    <>
       <div
         className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full ${iconBg}`}
       >
@@ -32,6 +34,9 @@ function SummaryStatCard({
       <div className="min-w-0 flex-1">
         <p className="text-sm text-bento-offwhite/55">{label}</p>
         <p className="truncate font-semibold text-bento-offwhite">{value}</p>
+        {locked && (
+          <p className="mt-0.5 text-xs text-bento-gold">Plano Essencial</p>
+        )}
       </div>
       <svg
         className="h-5 w-5 shrink-0 text-bento-offwhite/30"
@@ -42,6 +47,20 @@ function SummaryStatCard({
       >
         <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
       </svg>
+    </>
+  );
+
+  if (locked) {
+    return (
+      <Link href="/planos" className={className}>
+        {content}
+      </Link>
+    );
+  }
+
+  return (
+    <Link href={href} className={className}>
+      {content}
     </Link>
   );
 }
@@ -82,12 +101,14 @@ interface FinanceOverviewCardsProps {
   balance: BalanceSummary | null;
   incomeTotal: number;
   expensesTotal: number;
+  isFreePlan?: boolean;
 }
 
 export function FinanceOverviewCards({
   balance,
   incomeTotal,
   expensesTotal,
+  isFreePlan = false,
 }: FinanceOverviewCardsProps) {
   return (
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -114,10 +135,11 @@ export function FinanceOverviewCards({
       />
       <SummaryStatCard
         label="Cartão de crédito"
-        value={formatCurrency(balance?.totalCreditDebt ?? 0)}
+        value={isFreePlan ? "—" : formatCurrency(balance?.totalCreditDebt ?? 0)}
         icon={<CreditCardIcon />}
         iconBg="bg-teal-500"
         href="/dashboard/cartoes"
+        locked={isFreePlan}
       />
     </div>
   );

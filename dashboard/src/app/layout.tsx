@@ -15,8 +15,8 @@ const cinzel = Cinzel({
 });
 
 export const metadata: Metadata = {
-  title: "Bento Finanças — Dashboard",
-  description: "Visualize seus gastos registrados via WhatsApp",
+  title: "Bento Finanças — Controle seus gastos pelo WhatsApp",
+  description: "Registre gastos e receitas via WhatsApp. Dashboard completo para acompanhar suas finanças.",
   icons: {
     icon: "/log1.png",
     apple: "/log1.png",

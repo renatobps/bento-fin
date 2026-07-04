@@ -18,6 +18,14 @@ export interface EvolutionMessageData {
       selectedButtonId?: string;
       selectedDisplayText?: string;
     };
+    templateButtonReplyMessage?: {
+      selectedId?: string;
+      selectedDisplayText?: string;
+    };
+    interactiveResponseMessage?: {
+      body?: { text?: string };
+      nativeFlowResponseMessage?: { name?: string; paramsJson?: string };
+    };
     audioMessage?: {
       url?: string;
       mimetype?: string;

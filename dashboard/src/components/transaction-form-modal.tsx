@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import {
   createExpenseEntry,
   createIncomeEntry,
@@ -12,6 +13,7 @@ import {
   type CategoryItem,
   type ExpenseItem,
   type IncomeItem,
+  type SubscriptionInfo,
 } from "@/lib/api";
 import { getToken } from "@/lib/auth";
 import {
@@ -44,6 +46,8 @@ interface TransactionFormModalProps {
   kind: TransactionKind;
   mode: "create" | "edit";
   row?: FinanceTableRow | null;
+  subscription?: SubscriptionInfo | null;
+  onIncomeLimitReached?: () => void;
   onClose: () => void;
   onSaved: () => void;
 }
@@ -53,6 +57,8 @@ export function TransactionFormModal({
   kind,
   mode,
   row,
+  subscription,
+  onIncomeLimitReached,
   onClose,
   onSaved,
 }: TransactionFormModalProps) {
@@ -64,6 +70,12 @@ export function TransactionFormModal({
 
   const isIncome = kind === "income";
   const isCredit = kind === "credit_expense";
+
+  const incomeLimit = subscription?.usage.limits.income ?? 10;
+  const incomeUsed = subscription?.usage.incomeThisMonth ?? 0;
+  const incomeRemaining = Math.max(0, incomeLimit - incomeUsed);
+  const isFreePlan = subscription?.plan === "free";
+  const incomeLimitReached = isFreePlan && mode === "create" && isIncome && incomeRemaining === 0;
 
   const loadMeta = useCallback(async () => {
     const token = getToken();
@@ -130,6 +142,12 @@ export function TransactionFormModal({
       return;
     }
 
+    if (incomeLimitReached) {
+      onIncomeLimitReached?.();
+      onClose();
+      return;
+    }
+
     setLoading(true);
     setError("");
 
@@ -164,7 +182,13 @@ export function TransactionFormModal({
       onSaved();
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Erro ao salvar");
+      const message = err instanceof Error ? err.message : "Erro ao salvar";
+      if (isIncome && message.includes("Limite de") && message.includes("receitas")) {
+        onIncomeLimitReached?.();
+        onClose();
+        return;
+      }
+      setError(message);
     } finally {
       setLoading(false);
     }
@@ -193,6 +217,25 @@ export function TransactionFormModal({
         {error && (
           <div className="mb-4 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
             {error}
+          </div>
+        )}
+
+        {isIncome && isFreePlan && mode === "create" && (
+          <div className="mb-4 rounded-xl border border-bento-gold/20 bg-bento-gold/5 px-4 py-3 text-sm text-bento-offwhite/80">
+            Plano gratuito —{" "}
+            <span className="font-medium text-bento-gold">
+              {incomeRemaining}{" "}
+              {incomeRemaining === 1 ? "receita restante" : "receitas restantes"}
+            </span>{" "}
+            de {incomeLimit} este mês.
+            {incomeLimitReached && (
+              <>
+                {" "}
+                <Link href="/planos" className="font-semibold text-bento-gold hover:underline">
+                  Ver planos
+                </Link>
+              </>
+            )}
           </div>
         )}
 
@@ -300,7 +343,7 @@ export function TransactionFormModal({
             </button>
             <button
               type="submit"
-              disabled={loading || (isCredit && cards.length === 0)}
+              disabled={loading || (isCredit && cards.length === 0) || incomeLimitReached}
               className="flex-1 rounded-xl bg-bento-gold px-4 py-2.5 text-sm font-semibold text-bento-navy transition hover:bg-bento-gold/90 disabled:opacity-50"
             >
               {loading ? "Salvando..." : mode === "edit" ? "Salvar" : "Adicionar"}

@@ -26,9 +26,16 @@ export function parseMonthQuery(
   };
 }
 
+import { TZ } from "../utils/timezone.js";
+
 export function getCurrentMonthRange(): MonthRange {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = now.getMonth() + 1;
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: TZ,
+    year: "numeric",
+    month: "2-digit",
+  }).formatToParts(new Date());
+
+  const year = parseInt(parts.find((p) => p.type === "year")?.value ?? "0", 10);
+  const month = parseInt(parts.find((p) => p.type === "month")?.value ?? "1", 10);
   return parseMonthQuery(year, month)!;
 }

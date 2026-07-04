@@ -1,9 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import {
   fetchLimits,
+  fetchSubscription,
   formatCurrency,
+  isPlanRestrictedError,
   updateLimits,
   type LimitsInput,
   type LimitsResponse,
@@ -74,6 +77,8 @@ export function SpendingLimitsPanel() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
+  const [planLocked, setPlanLocked] = useState(false);
+  const [showUpgradePrompt, setShowUpgradePrompt] = useState(false);
 
   const loadLimits = useCallback(async () => {
     const token = getToken();
@@ -81,13 +86,31 @@ export function SpendingLimitsPanel() {
 
     setLoading(true);
     setError("");
+    setShowUpgradePrompt(false);
+
     try {
+      const sub = await fetchSubscription(token);
+      if (sub.plan === "free") {
+        setPlanLocked(true);
+        setData(null);
+        setDaily("");
+        setWeekly("");
+        setMonthly("");
+        return;
+      }
+
+      setPlanLocked(false);
       const limits = await fetchLimits(token);
       setData(limits);
       setDaily(limits.dailyLimit?.toString() ?? "");
       setWeekly(limits.weeklyLimit?.toString() ?? "");
       setMonthly(limits.monthlyLimit?.toString() ?? "");
     } catch (err) {
+      if (isPlanRestrictedError(err)) {
+        setPlanLocked(true);
+        setData(null);
+        return;
+      }
       setError(err instanceof Error ? err.message : "Erro ao carregar limites");
     } finally {
       setLoading(false);
@@ -108,9 +131,16 @@ export function SpendingLimitsPanel() {
     const token = getToken();
     if (!token) return;
 
-    setSaving(true);
     setError("");
     setSuccess(false);
+    setShowUpgradePrompt(false);
+
+    if (planLocked) {
+      setShowUpgradePrompt(true);
+      return;
+    }
+
+    setSaving(true);
 
     const payload: LimitsInput = {
       dailyLimit: parseField(daily),
@@ -124,6 +154,11 @@ export function SpendingLimitsPanel() {
       setSuccess(true);
       setTimeout(() => setSuccess(false), 3000);
     } catch (err) {
+      if (isPlanRestrictedError(err)) {
+        setPlanLocked(true);
+        setShowUpgradePrompt(true);
+        return;
+      }
       setError(err instanceof Error ? err.message : "Erro ao salvar limites");
     } finally {
       setSaving(false);
@@ -145,6 +180,22 @@ export function SpendingLimitsPanel() {
       {error && (
         <div className="mb-4 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
           {error}
+        </div>
+      )}
+
+      {planLocked && !showUpgradePrompt && (
+        <div className="mb-4 rounded-xl border border-bento-gold/20 bg-bento-gold/5 px-4 py-3 text-sm text-bento-offwhite/80">
+          Limites de gasto estão disponíveis a partir do plano Essencial.
+        </div>
+      )}
+
+      {showUpgradePrompt && (
+        <div className="mb-4 rounded-xl border border-bento-gold/30 bg-bento-gold/10 px-4 py-3 text-sm text-bento-offwhite">
+          Para ativar limites de gasto e receber alertas no WhatsApp, assine o
+          plano Essencial por R$14,90/mês.{" "}
+          <Link href="/planos" className="font-semibold text-bento-gold hover:underline">
+            Ver planos
+          </Link>
         </div>
       )}
 
@@ -184,7 +235,7 @@ export function SpendingLimitsPanel() {
             disabled={saving}
             className="mt-6 rounded-xl bg-bento-gold px-6 py-2.5 text-sm font-semibold text-bento-navy transition hover:bg-bento-gold/90 disabled:opacity-50"
           >
-            {saving ? "Salvando..." : "Salvar limites"}
+            {saving ? "Salvando..." : planLocked ? "Ativar limites" : "Salvar limites"}
           </button>
         </>
       )}

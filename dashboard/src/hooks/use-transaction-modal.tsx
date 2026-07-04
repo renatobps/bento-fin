@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useState } from "react";
-import { deleteExpenseEntry, deleteIncomeEntry } from "@/lib/api";
+import Link from "next/link";
+import { deleteExpenseEntry, deleteIncomeEntry, type SubscriptionInfo } from "@/lib/api";
 import { getToken } from "@/lib/auth";
 import type { TransactionKind } from "@/lib/transactions";
 import type { FinanceTableRow } from "@/components/finance-table";
@@ -10,7 +11,16 @@ import {
   TransactionFormModal,
 } from "@/components/transaction-form-modal";
 
-export function useTransactionModal(onSaved: () => void) {
+interface UseTransactionModalOptions {
+  subscription?: SubscriptionInfo | null;
+  onIncomeLimitReached?: () => void;
+}
+
+export function useTransactionModal(
+  onSaved: () => void,
+  options: UseTransactionModalOptions = {}
+) {
+  const { subscription, onIncomeLimitReached } = options;
   const [open, setOpen] = useState(false);
   const [kind, setKind] = useState<TransactionKind>("expense");
   const [mode, setMode] = useState<"create" | "edit">("create");
@@ -63,6 +73,8 @@ export function useTransactionModal(onSaved: () => void) {
       kind={kind}
       mode={mode}
       row={editRow}
+      subscription={subscription}
+      onIncomeLimitReached={onIncomeLimitReached}
       onClose={() => setOpen(false)}
       onSaved={onSaved}
     />

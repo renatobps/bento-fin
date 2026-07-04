@@ -1,10 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import {
   createCreditCard,
   fetchCreditCards,
+  fetchSubscription,
   formatCurrency,
+  isPlanRestrictedError,
   updateCreditCard,
   type CreditCardItem,
 } from "@/lib/api";
@@ -39,6 +42,8 @@ export function CreditCardsPanel() {
   const [savingId, setSavingId] = useState<number | "new" | null>(null);
   const [error, setError] = useState("");
   const [successId, setSuccessId] = useState<number | "new" | null>(null);
+  const [planLocked, setPlanLocked] = useState(false);
+  const [showUpgradePrompt, setShowUpgradePrompt] = useState(false);
 
   const loadCards = useCallback(async () => {
     const token = getToken();
@@ -46,7 +51,18 @@ export function CreditCardsPanel() {
 
     setLoading(true);
     setError("");
+    setShowUpgradePrompt(false);
+
     try {
+      const sub = await fetchSubscription(token);
+      if (sub.plan === "free") {
+        setPlanLocked(true);
+        setCards([]);
+        setForms({});
+        return;
+      }
+
+      setPlanLocked(false);
       const data = await fetchCreditCards(token);
       setCards(data.cards);
       const initial: Record<number, CardFormState> = {};
@@ -58,6 +74,12 @@ export function CreditCardsPanel() {
       }
       setForms(initial);
     } catch (err) {
+      if (isPlanRestrictedError(err)) {
+        setPlanLocked(true);
+        setCards([]);
+        setForms({});
+        return;
+      }
       setError(err instanceof Error ? err.message : "Erro ao carregar cartões");
     } finally {
       setLoading(false);
@@ -71,6 +93,15 @@ export function CreditCardsPanel() {
   async function handleCreate() {
     const token = getToken();
     if (!token) return;
+
+    setError("");
+    setSuccessId(null);
+    setShowUpgradePrompt(false);
+
+    if (planLocked) {
+      setShowUpgradePrompt(true);
+      return;
+    }
 
     const name = newCard.name.trim();
     if (!name) {
@@ -92,7 +123,6 @@ export function CreditCardsPanel() {
 
     setSavingId("new");
     setError("");
-    setSuccessId(null);
     try {
       await createCreditCard(token, {
         name,
@@ -104,6 +134,11 @@ export function CreditCardsPanel() {
       setSuccessId("new");
       setTimeout(() => setSuccessId(null), 2500);
     } catch (err) {
+      if (isPlanRestrictedError(err)) {
+        setPlanLocked(true);
+        setShowUpgradePrompt(true);
+        return;
+      }
       setError(err instanceof Error ? err.message : "Erro ao adicionar cartão");
     } finally {
       setSavingId(null);
@@ -113,6 +148,15 @@ export function CreditCardsPanel() {
   async function handleSave(card: CreditCardItem) {
     const token = getToken();
     if (!token) return;
+
+    setError("");
+    setSuccessId(null);
+    setShowUpgradePrompt(false);
+
+    if (planLocked) {
+      setShowUpgradePrompt(true);
+      return;
+    }
 
     const form = forms[card.id];
     if (!form) return;
@@ -148,6 +192,11 @@ export function CreditCardsPanel() {
       setSuccessId(card.id);
       setTimeout(() => setSuccessId(null), 2500);
     } catch (err) {
+      if (isPlanRestrictedError(err)) {
+        setPlanLocked(true);
+        setShowUpgradePrompt(true);
+        return;
+      }
       setError(err instanceof Error ? err.message : "Erro ao salvar cartão");
     } finally {
       setSavingId(null);
@@ -171,6 +220,22 @@ export function CreditCardsPanel() {
         <p className="mb-4 text-sm text-bento-offwhite/50">
           Cadastre um novo cartão com limite e dia de vencimento da fatura.
         </p>
+
+        {planLocked && !showUpgradePrompt && (
+          <div className="mb-4 rounded-xl border border-bento-gold/20 bg-bento-gold/5 px-4 py-3 text-sm text-bento-offwhite/80">
+            Cartões de crédito estão disponíveis a partir do plano Essencial.
+          </div>
+        )}
+
+        {showUpgradePrompt && (
+          <div className="mb-4 rounded-xl border border-bento-gold/30 bg-bento-gold/10 px-4 py-3 text-sm text-bento-offwhite">
+            Para cadastrar cartões e acompanhar faturas, assine o plano Essencial
+            por R$14,90/mês.{" "}
+            <Link href="/planos" className="font-semibold text-bento-gold hover:underline">
+              Ver planos
+            </Link>
+          </div>
+        )}
 
         <div className="grid gap-4 sm:grid-cols-3">
           <div className="sm:col-span-3">

@@ -3,7 +3,7 @@ import {
   isLowConfidenceAmbiguous,
 } from "./llm-parser.js";
 import type { IntentSource, ParsedMessage } from "../types/parsed-message.js";
-import { extractExpensesFromParsed } from "../types/parsed-message.js";
+import { extractExpensesFromParsed, extractIncomesFromParsed } from "../types/parsed-message.js";
 import { sendWhatsAppText } from "./evolution.js";
 import { findOrCreateUser } from "../repositories/users.js";
 import {
@@ -30,6 +30,7 @@ import {
 import { extractAmountFromText, detectPaymentMethod } from "../utils/amount-parser.js";
 import { extractCardNameFromText } from "../utils/card-name.js";
 import { checkSpendingLimits, getLimitConsultationResponse } from "./spending-limit-checker.js";
+import { checkUsageLimit } from "./plan-checker.js";
 import {
   getIncomeCategoryByName,
   normalizeIncomeCategory,
@@ -113,6 +114,37 @@ async function registerExpenses(
       line: formatExpenseLine(item.valor, category.name, item.descricao),
       paymentMethod,
       cardName,
+    });
+  }
+
+  return results;
+}
+
+async function registerIncomes(
+  userId: number,
+  parsed: ParsedMessage,
+  source: "text" | "audio"
+): Promise<Array<{ line: string }>> {
+  const defaultDate = parsed.expense_date ?? getTodayISO();
+  const items = extractIncomesFromParsed(parsed);
+  const results: Array<{ line: string }> = [];
+
+  for (const item of items) {
+    const categoryName = normalizeIncomeCategory(item.income_category);
+    const category = await getIncomeCategoryByName(categoryName);
+    const incomeDate = item.expense_date ?? defaultDate;
+
+    await createIncome({
+      userId,
+      amount: item.valor,
+      categoryId: category.id,
+      description: item.descricao,
+      incomeDate,
+      source,
+    });
+
+    results.push({
+      line: `${formatCurrency(item.valor)} - ${category.icon ?? ""} ${category.name}${item.descricao ? ` (${item.descricao})` : ""}`,
     });
   }
 
@@ -261,6 +293,11 @@ Pronto! Pode começar. 🎯`
       const paymentMethod =
         parsed.payment_method ?? detectPaymentMethod(msg.text) ?? "dinheiro";
 
+      if (!(await checkUsageLimit(user.id, msg.phone, "expense"))) {
+        await logOnly(user.id, msg, true, { detectedIntent: "registrar_gasto", intentSource });
+        return;
+      }
+
       await createExpense({
         userId: user.id,
         amount,
@@ -310,6 +347,13 @@ Pronto! Pode começar. 🎯`
           "Não consegui identificar o valor. Quanto foi exatamente?";
         success = true;
       } else {
+        const items = extractExpensesFromParsed(parsed);
+        const itemCount = items.length || 1;
+        if (!(await checkUsageLimit(user.id, msg.phone, "expense", itemCount))) {
+          await logOnly(user.id, msg, true, { detectedIntent: "registrar_gasto", intentSource });
+          return;
+        }
+
         const registered = await registerExpenses(user.id, msg.phone, parsed, source);
         const paymentMethod = parsed.payment_method ?? "dinheiro";
 
@@ -332,25 +376,31 @@ Pronto! Pode começar. 🎯`
         success = true;
       }
     } else if (parsed.intent === "registrar_receita") {
-      if (parsed.valor === null || parsed.valor <= 0) {
+      const items = extractIncomesFromParsed(parsed);
+      const expectedCount = parsed.receitas?.length ?? (parsed.valor !== null ? 1 : 0);
+      const needsClarification =
+        parsed.precisa_clarificacao ||
+        items.length === 0 ||
+        (expectedCount > 1 && items.length < expectedCount);
+
+      if (needsClarification) {
         responseText = "Não consegui identificar o valor da receita. Quanto você recebeu?";
         success = true;
       } else {
-        const categoryName = normalizeIncomeCategory(parsed.income_category);
-        const category = await getIncomeCategoryByName(categoryName);
-        const incomeDate = parsed.expense_date ?? getTodayISO();
+        const itemCount = items.length || 1;
+        if (!(await checkUsageLimit(user.id, msg.phone, "income", itemCount))) {
+          await logOnly(user.id, msg, true, { detectedIntent: "registrar_receita", intentSource });
+          return;
+        }
 
-        await createIncome({
-          userId: user.id,
-          amount: parsed.valor,
-          categoryId: category.id,
-          description: parsed.descricao,
-          incomeDate,
-          source,
-        });
-
+        const registered = await registerIncomes(user.id, parsed, source);
         const balance = await calculateBalance(user.id);
-        responseText = `Receita registrada: ${formatCurrency(parsed.valor)} - ${category.icon ?? ""} ${category.name}${parsed.descricao ? ` (${parsed.descricao})` : ""}\nSaldo disponível: ${formatCurrency(balance.availableBalance)}`;
+
+        if (registered.length === 1) {
+          responseText = `Receita registrada: ${registered[0].line}\nSaldo disponível: ${formatCurrency(balance.availableBalance)}`;
+        } else {
+          responseText = `${registered.length} receitas registradas:\n${registered.map((r) => `• ${r.line}`).join("\n")}\nSaldo disponível: ${formatCurrency(balance.availableBalance)}`;
+        }
         success = true;
       }
     } else if (parsed.intent === "pagar_fatura") {

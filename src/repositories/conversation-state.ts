@@ -45,13 +45,21 @@ export async function setPendingContext(
     return;
   }
 
+  const isOnboarding =
+    context.awaiting_initial_balance ||
+    context.awaiting_credit_card ||
+    context.awaiting_card_limit ||
+    context.awaiting_more_cards;
+
+  const expiryInterval = isOnboarding ? "24 hours" : "10 minutes";
+
   await query(
     `INSERT INTO conversation_state (user_id, pending_context, expires_at, updated_at)
-     VALUES ($1, $2, NOW() + INTERVAL '10 minutes', NOW())
+     VALUES ($1, $2, NOW() + INTERVAL '${expiryInterval}', NOW())
      ON CONFLICT (user_id)
      DO UPDATE SET
        pending_context = $2,
-       expires_at = NOW() + INTERVAL '10 minutes',
+       expires_at = NOW() + INTERVAL '${expiryInterval}',
        updated_at = NOW()`,
     [userId, JSON.stringify(context)]
   );

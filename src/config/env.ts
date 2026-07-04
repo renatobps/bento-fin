@@ -29,6 +29,18 @@ export const env = {
     .split(",")
     .map((value) => value.trim())
     .filter(Boolean),
+  frontendUrl: optionalEnv("FRONTEND_URL", "http://localhost:3001"),
+  landingUrl: optionalEnv("LANDING_URL", "http://localhost:3001"),
+  stripe: {
+    secretKey: optionalEnv("STRIPE_SECRET_KEY", ""),
+    webhookSecret: optionalEnv("STRIPE_WEBHOOK_SECRET", ""),
+    prices: {
+      essencialMonthly: optionalEnv("STRIPE_PRICE_ESSENCIAL_MONTHLY", ""),
+      essencialYearly: optionalEnv("STRIPE_PRICE_ESSENCIAL_YEARLY", ""),
+      proMonthly: optionalEnv("STRIPE_PRICE_PRO_MONTHLY", ""),
+      proYearly: optionalEnv("STRIPE_PRICE_PRO_YEARLY", ""),
+    },
+  },
 };
 
 function warnIfMissing(name: string, value: string, message: string): void {
@@ -41,4 +53,9 @@ warnIfMissing(
   "OPENAI_API_KEY",
   env.openaiApiKey,
   "transcrição de áudio estará desativada."
+);
+warnIfMissing(
+  "STRIPE_SECRET_KEY",
+  env.stripe.secretKey,
+  "checkout e assinaturas estarão desativados."
 );
