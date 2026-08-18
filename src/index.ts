@@ -1,15 +1,32 @@
 import express, { Request, Response, NextFunction } from "express";
 import cors from "cors";
+import helmet from "helmet";
 import { env } from "./config/env.js";
 import { pool } from "./db/pool.js";
 import { webhookRouter } from "./routes/webhook.js";
 import { authRouter } from "./routes/auth.js";
 import { apiRouter } from "./routes/api.js";
+import { adminRouter } from "./routes/admin.js";
 import { stripeWebhookRouter } from "./routes/stripe.js";
 import { sendBillingReminders } from "./services/billing-reminder.js";
 
 const app = express();
+const isProduction = process.env.NODE_ENV === "production";
 
+// Necessário para que req.ip use o X-Forwarded-For do proxy do EasyPanel.
+// Sem isso os limites por IP são forjáveis pelo próprio cliente.
+app.set("trust proxy", 1);
+
+app.disable("x-powered-by");
+app.use(
+  helmet({
+    // API JSON: não serve HTML, então a CSP padrão não agrega e complica CORS.
+    contentSecurityPolicy: false,
+    crossOriginResourcePolicy: { policy: "cross-origin" },
+  })
+);
+
+// Conveniência de desenvolvimento: acessar o dashboard pelo IP da rede local.
 const LAN_DASHBOARD_ORIGIN =
   /^http:\/\/(?:192\.168\.\d{1,3}\.\d{1,3}|10\.\d{1,3}\.\d{1,3}\.\d{1,3}):3001$/;
 
@@ -26,7 +43,7 @@ app.use(
         return;
       }
 
-      if (LAN_DASHBOARD_ORIGIN.test(origin)) {
+      if (!isProduction && LAN_DASHBOARD_ORIGIN.test(origin)) {
         callback(null, true);
         return;
       }
@@ -75,6 +92,7 @@ app.get("/health", async (_req, res) => {
 
 app.use("/webhook", webhookRouter);
 app.use("/api/auth", authRouter);
+app.use("/api/admin", adminRouter);
 app.use("/api", apiRouter);
 
 function msUntilNext9amBrasilia(): number {

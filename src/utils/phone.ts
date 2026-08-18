@@ -48,3 +48,22 @@ export function formatPhoneDisplay(phone: string): string {
 
   return `+55 (${ddd}) ${number.slice(0, 4)}-${number.slice(4)}`;
 }
+
+/** Variante com/sem nono dígito — o WhatsApp pode registrar o JID de formas diferentes. */
+export function alternateBrazilMobile(phone: string): string | null {
+  const digits = phone.replace(/\D/g, "");
+  if (!/^55\d{10,11}$/.test(digits)) return null;
+
+  const ddd = digits.slice(2, 4);
+  const local = digits.slice(4);
+
+  if (local.length === 9 && local.startsWith("9")) {
+    return `${BRAZIL_COUNTRY}${ddd}${local.slice(1)}`;
+  }
+
+  if (local.length === 8) {
+    return `${BRAZIL_COUNTRY}${ddd}9${local}`;
+  }
+
+  return null;
+}

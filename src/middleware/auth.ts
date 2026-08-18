@@ -37,6 +37,11 @@ export async function authMiddleware(
       return;
     }
 
+    if (user.is_blocked) {
+      res.status(403).json({ error: "Conta suspensa. Entre em contato com o suporte." });
+      return;
+    }
+
     next();
   } catch {
     res.status(401).json({ error: "Token inválido ou expirado" });

@@ -3,11 +3,14 @@
 import Link from "next/link";
 import type { BillingInterval, PlanDefinition } from "@/lib/plans";
 import { formatPlanPrice, PLANS, yearlyDiscountPercent } from "@/lib/plans";
+import type { SubscriptionInfo } from "@/lib/api";
+import { formatPlanRenewalHint } from "@/components/current-plan-summary";
 
 interface PricingCardProps {
   plan: PlanDefinition;
   interval: BillingInterval;
   currentPlan?: string;
+  subscription?: SubscriptionInfo | null;
   loading?: boolean;
   onSubscribe?: (planId: "essencial" | "pro") => void;
   onManage?: () => void;
@@ -17,12 +20,15 @@ export function PricingCard({
   plan,
   interval,
   currentPlan,
+  subscription,
   loading = false,
   onSubscribe,
   onManage,
 }: PricingCardProps) {
   const price = interval === "monthly" ? plan.monthlyPrice : plan.yearlyPrice;
   const isCurrent = currentPlan === plan.id;
+  const renewalHint =
+    isCurrent && subscription ? formatPlanRenewalHint(subscription) : null;
   const discount =
     interval === "yearly" && plan.monthlyPrice > 0
       ? yearlyDiscountPercent(plan.monthlyPrice, plan.yearlyPrice)
@@ -92,6 +98,12 @@ export function PricingCard({
       <h3 className="font-display text-xl text-bento-offwhite">{plan.name}</h3>
       <p className="mt-1 text-sm text-bento-offwhite/50">{plan.description}</p>
 
+      {renewalHint && (
+        <p className="mt-3 rounded-lg border border-bento-gold/15 bg-bento-gold/5 px-3 py-2 text-xs text-bento-offwhite/75">
+          {renewalHint}
+        </p>
+      )}
+
       <div className="my-6">
         <p className="font-display text-3xl text-bento-gold">
           {formatPlanPrice(price, interval)}
@@ -149,13 +161,22 @@ export function PricingToggle({ interval, onChange }: PricingToggleProps) {
       <button
         type="button"
         onClick={() => onChange("yearly")}
-        className={`rounded-lg px-5 py-2 text-sm font-medium transition ${
+        className={`flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition sm:px-5 ${
           interval === "yearly"
             ? "bg-bento-gold text-bento-navy"
             : "text-bento-offwhite/60 hover:text-bento-offwhite"
         }`}
       >
         Anual
+        <span
+          className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold leading-none ${
+            interval === "yearly"
+              ? "bg-bento-navy text-bento-gold"
+              : "bg-bento-gold/15 text-bento-gold"
+          }`}
+        >
+          2 meses grátis
+        </span>
       </button>
     </div>
   );
@@ -164,6 +185,7 @@ export function PricingToggle({ interval, onChange }: PricingToggleProps) {
 interface PricingGridProps {
   interval: BillingInterval;
   currentPlan?: string;
+  subscription?: SubscriptionInfo | null;
   loadingPlan?: string | null;
   onSubscribe: (planId: "essencial" | "pro") => void;
   onManage: () => void;
@@ -172,6 +194,7 @@ interface PricingGridProps {
 export function PricingGrid({
   interval,
   currentPlan,
+  subscription,
   loadingPlan,
   onSubscribe,
   onManage,
@@ -184,6 +207,7 @@ export function PricingGrid({
           plan={plan}
           interval={interval}
           currentPlan={currentPlan}
+          subscription={subscription}
           loading={loadingPlan === plan.id}
           onSubscribe={onSubscribe}
           onManage={onManage}

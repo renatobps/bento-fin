@@ -36,9 +36,7 @@ export async function transcribeAudioMessage(
     throw new Error("OPENAI_API_KEY não configurada para transcrição de áudio");
   }
 
-  let media = await getMediaBase64(data, false).catch(async () =>
-    getMediaBase64(data, true)
-  );
+  const media = await getMediaBase64(data);
 
   const ext = extensionFromMime(
     media.mimetype,

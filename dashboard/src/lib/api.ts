@@ -1,12 +1,7 @@
-function getApiUrl(): string {
-  if (typeof window !== "undefined") {
-    const { protocol, hostname } = window.location;
-    if (hostname !== "localhost" && hostname !== "127.0.0.1") {
-      return `${protocol}//${hostname}:3000`;
-    }
-  }
+import { resolveApiUrl } from "@/lib/api-url";
 
-  return process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3000";
+function getApiUrl(): string {
+  return resolveApiUrl();
 }
 
 export type Period = "hoje" | "semana" | "mes";
@@ -457,6 +452,7 @@ export interface SubscriptionInfo {
   plan: "free" | "essencial" | "pro";
   status: "active" | "canceled" | "past_due" | "incomplete";
   expiresAt: string | null;
+  billingInterval: "monthly" | "yearly" | null;
   usage: {
     expensesThisMonth: number;
     incomeThisMonth: number;

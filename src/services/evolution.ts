@@ -1,5 +1,46 @@
 import { env } from "../config/env.js";
 import type { EvolutionMessageData } from "../types/evolution.js";
+import { alternateBrazilMobile } from "../utils/phone.js";
+
+export class WhatsAppDeliveryError extends Error {
+  readonly code: "not_registered" | "api_error";
+  readonly status?: number;
+
+  constructor(message: string, code: "not_registered" | "api_error", status?: number) {
+    super(message);
+    this.name = "WhatsAppDeliveryError";
+    this.code = code;
+    this.status = status;
+  }
+}
+
+const NOT_REGISTERED_PATTERNS = [
+  "not registered",
+  "not on whatsapp",
+  "no phone registered",
+  "invalid jid",
+  "user not found",
+  "number not found",
+];
+
+function evolutionBodyIndicatesNotRegistered(body: string): boolean {
+  if (body.includes('"exists":false')) return true;
+
+  const lower = body.toLowerCase();
+  if (NOT_REGISTERED_PATTERNS.some((pattern) => lower.includes(pattern))) {
+    return true;
+  }
+
+  try {
+    const parsed = JSON.parse(body) as {
+      response?: { message?: Array<{ exists?: boolean }> };
+    };
+    const messages = parsed.response?.message;
+    return Array.isArray(messages) && messages.some((item) => item.exists === false);
+  } catch {
+    return false;
+  }
+}
 
 interface SendTextParams {
   phone: string;
@@ -16,6 +57,8 @@ interface SendButtonsParams {
   phone: string;
   title: string;
   description: string;
+  /** Obrigatório no Evolution GO; usa "Bento" quando omitido. */
+  footer?: string;
   buttons: WhatsAppButton[];
 }
 
@@ -29,11 +72,6 @@ function formatPhoneNumber(phone: string): string {
 interface MediaBase64Result {
   base64: string;
   mimetype?: string;
-}
-
-function formatPhoneJid(phone: string): string {
-  const digits = phone.replace(/\D/g, "");
-  return digits.includes("@") ? digits : `${digits}@s.whatsapp.net`;
 }
 
 function stripBase64DataUrl(value: string): string {
@@ -65,55 +103,79 @@ async function fetchWithTimeout(
   }
 }
 
-export async function sendWhatsAppText(params: SendTextParams): Promise<void> {
-  const url = `${env.whatsapp.apiUrl}/message/sendText/${env.whatsapp.instanceName}`;
-
-  const response = await fetchWithTimeout(
-    url,
+/** Evolution GO identifica a instância pelo token no header `apikey`. */
+async function evolutionPost(
+  path: string,
+  body: unknown
+): Promise<Response> {
+  return fetchWithTimeout(
+    `${env.whatsapp.apiUrl}${path}`,
     {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         apikey: env.whatsapp.apiKey,
       },
-      body: JSON.stringify({
-        number: formatPhoneJid(params.phone),
-        text: params.text,
-      }),
+      body: JSON.stringify(body),
     },
     10000,
     "Timeout na Evolution API após 10s"
   );
+}
+
+export async function sendWhatsAppText(params: SendTextParams): Promise<void> {
+  const response = await evolutionPost("/send/text", {
+    number: formatPhoneNumber(params.phone),
+    text: params.text,
+  });
 
   if (!response.ok) {
     const body = await response.text();
-    throw new Error(`Evolution API erro ${response.status}: ${body}`);
+    if (
+      (response.status === 400 || response.status === 404) &&
+      evolutionBodyIndicatesNotRegistered(body)
+    ) {
+      throw new WhatsAppDeliveryError(
+        "Número não registrado no WhatsApp",
+        "not_registered",
+        response.status
+      );
+    }
+    throw new WhatsAppDeliveryError(
+      `Evolution API erro ${response.status}: ${body}`,
+      "api_error",
+      response.status
+    );
+  }
+}
+
+export async function sendWhatsAppTextWithFallback(params: SendTextParams): Promise<void> {
+  try {
+    await sendWhatsAppText(params);
+  } catch (err) {
+    if (!(err instanceof WhatsAppDeliveryError) || err.code !== "not_registered") {
+      throw err;
+    }
+
+    const alternate = alternateBrazilMobile(params.phone);
+    if (!alternate || alternate === params.phone.replace(/\D/g, "")) {
+      throw err;
+    }
+
+    await sendWhatsAppText({ ...params, phone: alternate });
   }
 }
 
 export async function sendWhatsAppButtons(
   params: SendButtonsParams
 ): Promise<void> {
-  const url = `${env.whatsapp.apiUrl}/message/sendButtons/${env.whatsapp.instanceName}`;
-
-  const response = await fetchWithTimeout(
-    url,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        apikey: env.whatsapp.apiKey,
-      },
-      body: JSON.stringify({
-        number: formatPhoneNumber(params.phone),
-        title: params.title,
-        description: params.description,
-        buttons: params.buttons,
-      }),
-    },
-    10000,
-    "Timeout na Evolution API após 10s"
-  );
+  const response = await evolutionPost("/send/button", {
+    number: formatPhoneNumber(params.phone),
+    title: params.title,
+    description: params.description,
+    footer: params.footer ?? "Bento",
+    buttons: params.buttons,
+  });
 
   if (!response.ok) {
     const body = await response.text();
@@ -148,56 +210,47 @@ export async function sendWhatsAppYesNo(params: {
   });
 }
 
+/** O Evolution GO retorna o binário em chaves diferentes conforme o tipo de mídia. */
+function extractBase64(payload: Record<string, unknown>): string | null {
+  for (const key of ["base64", "data", "media", "Data", "file"]) {
+    const value = payload[key];
+    if (typeof value === "string" && value.length > 0) {
+      return stripBase64DataUrl(value);
+    }
+  }
+  return null;
+}
+
+function extractMimetype(payload: Record<string, unknown>): string | undefined {
+  for (const key of ["mimetype", "mimeType", "Mimetype"]) {
+    const value = payload[key];
+    if (typeof value === "string" && value) return value;
+  }
+  return undefined;
+}
+
 export async function getMediaBase64(
-  data: EvolutionMessageData,
-  convertToMp4 = false
+  data: EvolutionMessageData
 ): Promise<MediaBase64Result> {
-  const url = `${env.whatsapp.apiUrl}/chat/getBase64FromMediaMessage/${env.whatsapp.instanceName}`;
+  const response = await evolutionPost("/message/downloadimage", {
+    message: data.message,
+  });
 
-  const payloads = [
-    { message: { key: data.key, message: data.message }, convertToMp4 },
-    { message: { key: data.key }, convertToMp4 },
-    { message: { key: { id: data.key.id } }, convertToMp4 },
-    { message: { key: data.key, message: data.message }, convertToMp4: true },
-    { message: { key: data.key }, convertToMp4: true },
-  ];
-
-  let lastError = "sem resposta";
-
-  for (const body of payloads) {
-    const response = await fetchWithTimeout(
-      url,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          apikey: env.whatsapp.apiKey,
-        },
-        body: JSON.stringify(body),
-      },
-      10000,
-      "Timeout na Evolution API após 10s"
+  if (!response.ok) {
+    throw new Error(
+      `Evolution API mídia — ${response.status}: ${await response.text()}`
     );
-
-    if (!response.ok) {
-      lastError = `${response.status}: ${await response.text()}`;
-      continue;
-    }
-
-    const result = (await response.json()) as {
-      base64?: string;
-      mimetype?: string;
-    };
-
-    if (result.base64) {
-      return {
-        base64: stripBase64DataUrl(result.base64),
-        mimetype: result.mimetype,
-      };
-    }
-
-    lastError = "resposta sem base64";
   }
 
-  throw new Error(`Evolution API mídia — ${lastError}`);
+  const result = (await response.json()) as Record<string, unknown>;
+  const base64 = extractBase64(result);
+
+  if (!base64) {
+    throw new Error("Evolution API mídia — resposta sem base64");
+  }
+
+  return {
+    base64,
+    mimetype: extractMimetype(result) ?? data.message?.audioMessage?.mimetype,
+  };
 }

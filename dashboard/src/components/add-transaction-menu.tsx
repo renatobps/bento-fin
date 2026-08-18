@@ -85,7 +85,7 @@ export function AddTransactionMenu({
 
   const containerClass =
     variant === "fab"
-      ? `fixed bottom-6 right-6 z-30 ${className}`
+      ? `fixed top-20 right-4 z-30 sm:top-6 sm:right-6 ${className}`
       : `relative ${className}`;
 
   return (
@@ -93,7 +93,7 @@ export function AddTransactionMenu({
       {open && (
         <div
           className={`absolute z-40 min-w-[200px] overflow-hidden rounded-2xl border border-bento-gold/15 bg-[#2a2f3a] shadow-xl ${
-            variant === "fab" ? "bottom-16 right-0" : "top-12 right-0"
+            variant === "fab" ? "top-16 right-0" : "top-12 right-0"
           }`}
         >
           {items.map((item) => (

@@ -1,6 +1,6 @@
 # Bento — Chatbot Financeiro via WhatsApp
 
-Backend Node.js + TypeScript para registrar e consultar gastos via WhatsApp (Evolution API) com extração por IA (Claude). Dashboard web em Next.js para visualização.
+Backend Node.js + TypeScript para registrar e consultar gastos via WhatsApp (Evolution GO) com extração por IA (Claude). Dashboard web em Next.js para visualização.
 
 ## Pré-requisitos
 
@@ -43,7 +43,7 @@ npm run dev
 | Método | Rota | Auth | Descrição |
 |--------|------|------|-----------|
 | GET | `/health` | — | Health check |
-| POST | `/webhook` | — | Eventos Evolution API |
+| POST | `/webhook` | apikey | Eventos do Evolution GO |
 | POST | `/api/auth/request-otp` | — | Envia OTP via WhatsApp |
 | POST | `/api/auth/verify-otp` | — | Valida OTP, retorna JWT |
 | GET | `/api/expenses?period=` | JWT | Lista de gastos |
@@ -58,10 +58,19 @@ Períodos: `hoje`, `semana`, `mes`
 3. Receba o código OTP no WhatsApp
 4. Visualize total, gráfico por categoria e lista de gastos
 
+## Conectar a instância do Evolution GO
+
+O webhook é registrado no `connect` da instância. O Evolution GO **não envia o header `apikey`**, então
+inclua o token como query string para o Bento aceitar o evento:
+
+```powershell
+Invoke-RestMethod -Method POST -Uri "$env:WHATSAPP_API_URL/instance/connect" -Headers @{ apikey = $env:WHATSAPP_API_KEY } -ContentType "application/json" -Body '{"webhookUrl":"https://seu-tunel.ultrahook.com?apikey=SEU_TOKEN","subscribe":["MESSAGE"]}'
+```
+
 ## Testar webhook localmente
 
 ```powershell
-Invoke-RestMethod -Method POST -Uri http://localhost:3000/webhook -ContentType "application/json" -Body '{"event":"messages.upsert","instance":"botml","data":{"key":{"remoteJid":"5511999999999@s.whatsapp.net","fromMe":false,"id":"TEST123"},"pushName":"Teste","message":{"conversation":"Bento, gastei 30 reais com um lanche"},"messageType":"conversation"}}'
+Invoke-RestMethod -Method POST -Uri "http://localhost:3000/webhook?apikey=SEU_TOKEN" -ContentType "application/json" -Body '{"event":"MESSAGE","instance":"botml","data":{"key":{"remoteJid":"5511999999999@s.whatsapp.net","fromMe":false,"id":"TEST123"},"pushName":"Teste","message":{"conversation":"Bento, gastei 30 reais com um lanche"}}}'
 ```
 
 ## Estrutura

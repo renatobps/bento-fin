@@ -1,7 +1,8 @@
 export interface EvolutionWebhookPayload {
   event: string;
   instance: string;
-  data: EvolutionMessageData | EvolutionMessageData[];
+  /** Formato varia entre Evolution v2 e Evolution GO — use normalizeMessageData. */
+  data: unknown;
 }
 
 export interface EvolutionMessageData {
@@ -34,4 +35,5 @@ export interface EvolutionMessageData {
     };
   };
   messageType?: string;
+  messageTimestamp?: string | number;
 }

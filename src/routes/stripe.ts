@@ -88,6 +88,34 @@ async function applySubscriptionFromStripe(
   });
 }
 
+export async function getSubscriptionBillingInterval(
+  stripeSubscriptionId: string | null
+): Promise<"monthly" | "yearly" | null> {
+  if (!stripeSubscriptionId || !env.stripe.secretKey) return null;
+
+  try {
+    const stripe = getStripe();
+    const subscription = await stripe.subscriptions.retrieve(stripeSubscriptionId);
+    const priceId = subscription.items.data[0]?.price.id ?? "";
+    const { prices } = env.stripe;
+
+    if (priceId === prices.essencialYearly || priceId === prices.proYearly) {
+      return "yearly";
+    }
+    if (priceId === prices.essencialMonthly || priceId === prices.proMonthly) {
+      return "monthly";
+    }
+
+    const recurring = subscription.items.data[0]?.price.recurring;
+    if (recurring?.interval === "year") return "yearly";
+    if (recurring?.interval === "month") return "monthly";
+    return null;
+  } catch (err) {
+    console.error("Erro ao buscar intervalo da assinatura:", err);
+    return null;
+  }
+}
+
 async function sendPlanWelcomeMessage(
   userId: number,
   plan: SubscriptionPlan

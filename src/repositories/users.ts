@@ -7,9 +7,11 @@ export interface User {
   name: string | null;
   email: string | null;
   created_at: Date;
+  is_blocked: boolean;
 }
 
-const USER_SELECT = "id, phone, name, email, created_at";
+const USER_SELECT =
+  "id, phone, name, email, created_at, COALESCE(is_blocked, false) AS is_blocked";
 
 export async function findOrCreateUser(
   phone: string,

@@ -21,6 +21,10 @@ export const env = {
     apiKey: requireEnv("WHATSAPP_API_KEY"),
     instanceName: requireEnv("WHATSAPP_INSTANCE_NAME"),
     webhookUrl: optionalEnv("WHATSAPP_WEBHOOK_URL", ""),
+    // O Evolution GO não envia header, então o token vai na query string e
+    // acaba em log de proxy. Manter separado da apiKey limita o estrago de um
+    // vazamento: forjar evento é ruim, controlar a instância é pior.
+    webhookSecret: optionalEnv("WEBHOOK_SECRET", "") || requireEnv("WHATSAPP_API_KEY"),
   },
   anthropicApiKey: requireEnv("ANTHROPIC_API_KEY"),
   openaiApiKey: optionalEnv("OPENAI_API_KEY", ""),

@@ -42,7 +42,7 @@ import {
   consumeUsageLimit,
 } from "../repositories/subscription.js";
 import { env } from "../config/env.js";
-import { createCheckoutSession, createPortalSession } from "../routes/stripe.js";
+import { createCheckoutSession, createPortalSession, getSubscriptionBillingInterval } from "../routes/stripe.js";
 
 function parseMonthPagination(query: Request["query"]): {
   page: number;
@@ -1021,6 +1021,7 @@ apiRouter.get("/subscription", async (req: Request, res: Response) => {
 
     const usage = await getLimitUsageCounts(user.id);
     const limits = getUsageLimits(user.subscription_plan);
+    const billingInterval = await getSubscriptionBillingInterval(user.subscription_stripe_id);
 
     res.json({
       plan: user.subscription_plan,
@@ -1028,6 +1029,7 @@ apiRouter.get("/subscription", async (req: Request, res: Response) => {
       expiresAt: user.subscription_expires_at
         ? toISOString(user.subscription_expires_at)
         : null,
+      billingInterval,
       usage: {
         expensesThisMonth: usage.expenses,
         incomeThisMonth: usage.income,

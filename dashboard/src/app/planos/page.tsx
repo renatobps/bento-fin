@@ -4,15 +4,16 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { BrandLogo } from "@/components/brand-logo";
+import { CurrentPlanSummary } from "@/components/current-plan-summary";
 import { PricingGrid, PricingToggle } from "@/components/pricing-card";
-import { createCheckout, fetchSubscription, openPortal } from "@/lib/api";
+import { createCheckout, fetchSubscription, openPortal, type SubscriptionInfo } from "@/lib/api";
 import type { BillingInterval } from "@/lib/plans";
 import { getToken } from "@/lib/auth";
 
 export default function PlanosPage() {
   const router = useRouter();
   const [interval, setInterval] = useState<BillingInterval>("monthly");
-  const [currentPlan, setCurrentPlan] = useState<string | undefined>();
+  const [subscription, setSubscription] = useState<SubscriptionInfo | null>(null);
   const [loadingPlan, setLoadingPlan] = useState<string | null>(null);
   const [error, setError] = useState("");
 
@@ -21,7 +22,12 @@ export default function PlanosPage() {
     if (!token) return;
 
     fetchSubscription(token)
-      .then((sub) => setCurrentPlan(sub.plan))
+      .then((sub) => {
+        setSubscription(sub);
+        if (sub.billingInterval) {
+          setInterval(sub.billingInterval);
+        }
+      })
       .catch(() => {});
   }, []);
 
@@ -110,9 +116,18 @@ export default function PlanosPage() {
           </div>
         )}
 
+        {subscription && getToken() && (
+          <CurrentPlanSummary
+            subscription={subscription}
+            onManage={subscription.plan !== "free" ? handleManage : undefined}
+            managing={loadingPlan === "manage"}
+          />
+        )}
+
         <PricingGrid
           interval={interval}
-          currentPlan={currentPlan}
+          currentPlan={subscription?.plan}
+          subscription={subscription}
           loadingPlan={loadingPlan}
           onSubscribe={handleSubscribe}
           onManage={handleManage}

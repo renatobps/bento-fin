@@ -55,8 +55,8 @@ function LoginContent() {
             Tradição, solidez e crescimento — seus gastos direto no WhatsApp
           </p>
           <p className="mt-4 rounded-xl border border-bento-gold/20 bg-bento-navy-muted px-4 py-3 text-xs text-bento-offwhite/60">
-            Seus gastos ficam salvos no banco de dados. Em cada navegador ou
-            dispositivo, faça login com o mesmo número de WhatsApp.
+            Enviaremos um código e as instruções iniciais no seu WhatsApp.
+            Use o mesmo número aqui e nas conversas com o Bento.
           </p>
         </div>
 
